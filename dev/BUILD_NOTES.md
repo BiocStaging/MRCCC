@@ -1,0 +1,104 @@
+# Local build and check sequence for MRCCC
+
+This directory is excluded from the built package through `.Rbuildignore`
+(`^dev$`). Run every step from the package root
+(`.../MR-CCC/MRCCC/`) with a current R (>= 4.4) and the current Bioconductor
+release or devel branch, as appropriate for the submission target.
+
+## 0. One-time prerequisites
+
+```r
+install.packages(c("Rcpp", "RcppArmadillo", "coda", "ggplot2",
+                   "roxygen2", "devtools", "testthat", "knitr", "rmarkdown"))
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install(c("BiocStyle", "BiocCheck"))
+```
+
+A C++ toolchain is required: Rtools on Windows, Xcode command line tools on
+macOS (with `gfortran` for the Fortran runtime that RcppArmadillo links
+against), `build-essential` and `gfortran` on Debian-based Linux.
+
+## 1. Regenerate the Rcpp glue
+
+`src/RcppExports.cpp` and `R/RcppExports.R` are hand-written in the form
+`compileAttributes()` produces, so the package builds even without this step.
+Regenerate them anyway so that they match the installed Rcpp version exactly:
+
+```r
+Rcpp::compileAttributes(verbose = TRUE)
+```
+
+The roxygen block above `mr_ccc_gibbs()` lives in `src/mr_ccc_gibbs.cpp` as
+`//'` comments and is copied into `R/RcppExports.R` by this step.
+
+## 2. Regenerate NAMESPACE and the Rd files
+
+```r
+roxygen2::roxygenise()      # or devtools::document()
+```
+
+Confirm that `NAMESPACE` is unchanged apart from ordering, and that `man/`
+now contains one `.Rd` per exported function plus `MRCCC-package.Rd`. If
+roxygen reports a different `RoxygenNote`, accept the update in
+`DESCRIPTION`.
+
+## 3. Build and check
+
+From a shell in the parent directory:
+
+```sh
+R CMD build MRCCC
+R CMD check --as-cran --no-manual MRCCC_0.99.0.tar.gz
+```
+
+Bioconductor does not require `--as-cran`, but its extra checks are useful.
+Alternatively, from R:
+
+```r
+devtools::check(args = c("--as-cran", "--no-manual"))
+```
+
+Expected result: 0 errors, 0 warnings. A note about the package size of the
+compiled library on some platforms is acceptable.
+
+## 4. BiocCheck
+
+```r
+BiocCheck::BiocCheck("MRCCC_0.99.0.tar.gz", `new-package` = TRUE)
+BiocCheck::BiocCheckGitClone(".")
+```
+
+Resolve every ERROR and WARNING. NOTEs should be reviewed individually.
+
+## 5. Bioconductor limits to keep in mind
+
+* Source package under 10 MB (BiocCheck additionally flags a built
+  tarball larger than 5 MB).
+* No single file larger than 5 MB.
+* `R CMD check` must complete in under 10 minutes on the build machines;
+  the vignette and examples are sized accordingly (short chains). Do not
+  increase the vignette chain length without re-timing the check.
+* Version `0.99.z` for a new submission; bump `z` for every push to the
+  submission branch.
+* The `biocViews` terms must be valid for the target release.
+* Unit tests should run in well under 2 minutes.
+
+## 6. Submission issue
+
+The submission is made by opening an issue at
+<https://github.com/Bioconductor/Contributions>. The issue text must
+disclose provenance in accordance with Bioconductor's policy on third-party
+and AI-assisted code: state which parts of the package were written by the
+authors, which were adapted from the published analysis scripts, and
+whether and how AI tools were used in drafting code or documentation. The
+disclosure belongs in the submission issue, not in the package files.
+
+## 7. Files that R CMD check may complain about
+
+* `README.md` and `NEWS.md` at the top level are standard and accepted.
+* `LICENSE.md` is excluded from the build through `.Rbuildignore`; the
+  short `LICENSE` file (YEAR / COPYRIGHT HOLDER) is what CRAN and
+  Bioconductor expect for `MIT + file LICENSE`.
+* `inst/CITATION` is read by `citation("MRCCC")`; check it parses with
+  `utils::readCitationFile("inst/CITATION")`.

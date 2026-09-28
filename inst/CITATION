@@ -1,0 +1,17 @@
+citHeader("To cite MRCCC in publications, please use:")
+
+bibentry(
+  bibtype = "Misc",
+  title   = "{MR-CCC}: Bayesian Mendelian Randomization for Causal Cell-Cell Communication",
+  author  = c(person("Bitan", "Sarkar"), person("Yang", "Ni")),
+  year    = "2026",
+  eprint  = "2604.23917",
+  archivePrefix = "arXiv",
+  primaryClass  = "stat.ME",
+  url     = "https://arxiv.org/abs/2604.23917",
+  textVersion = paste(
+    "Sarkar B, Ni Y (2026).",
+    "MR-CCC: Bayesian Mendelian Randomization for Causal Cell-Cell Communication.",
+    "arXiv:2604.23917. https://arxiv.org/abs/2604.23917"
+  )
+)
