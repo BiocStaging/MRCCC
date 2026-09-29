@@ -80,8 +80,24 @@
 #' on a standardised scale (per standard deviation of \eqn{X} and \eqn{Z}, in
 #' standard deviations of \eqn{Y}).
 #'
-#' **g-prior scale.** Unless overridden in `hyper`, every g-prior scale is
-#' set to \eqn{\min(n, 100)}.
+#' **Priors.** The first-stage blocks \eqn{\pi_X, \alpha_X, \pi_Z, \alpha_Z}
+#' and the covariate block \eqn{\alpha_Y} carry Zellner g-priors on their
+#' observed designs \eqn{G}, \eqn{H} and \eqn{V}. The second-stage blocks are
+#' scaled by the size of their regressors, but with that scale fixed:
+#' \deqn{(\beta_X, \beta_{XZ}) \mid \gamma, \sigma_Y^2 \sim
+#'   N_2\!\left(0,\; g\, s_\gamma\, \sigma_Y^2\, D_0^{-1}\right), \qquad
+#'   \beta_Z \mid \sigma_Y^2 \sim N\!\left(0,\; g\, \sigma_Y^2 / d_Z\right),}
+#' where \eqn{D_0 = \mathrm{diag}(\|\hat X^*\|^2, \|\hat X^* \circ \hat Z^*\|^2)}
+#' and \eqn{d_Z = \|\hat Z^*\|^2} are computed once from the least-squares
+#' first stage and held fixed, and \eqn{s_\gamma} is 1 in the slab and `nu1`
+#' in the spike. Equivalently, the causal coefficients carry independent
+#' normal priors on the scale of the standardised regressors. The scale is
+#' fixed rather than recomputed from the current draws because \eqn{X^*} and
+#' \eqn{Z^*} are functions of the first-stage parameters; a prior whose
+#' covariance moved with them would enter their full conditionals, and the
+#' sampler would no longer be a Gibbs sampler for the stated model. The
+#' values used are returned in `settings$prior_scale`. Unless overridden in
+#' `hyper`, every scale \eqn{g} is set to \eqn{\min(n, 100)}.
 #'
 #' **Instrument strength.** The first-stage partial F statistic of each
 #' instrument block, after the covariates, is computed by ordinary least
@@ -462,7 +478,11 @@ mr_ccc <- function(X, Z, Y, G, H, V = NULL,
       instruments = instruments,
       settings    = list(n_iter = n_iter, burn_in = burn_in, thin = thin,
                          n_chains = n_chains, n_keep = n_keep,
-                         pip_threshold = pip_threshold, hyper = hyper),
+                         pip_threshold = pip_threshold, hyper = hyper,
+                         # Fixed plug-in scale of the second-stage priors.
+                         # Deterministic in the data, so identical across
+                         # chains; taken from the first.
+                         prior_scale = fits[[1L]]$prior_scale),
       call        = cl
     ),
     class = "mrccc_fit"

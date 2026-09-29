@@ -31,25 +31,49 @@
 #'   probability rho.
 #' @param nu1 Spike variance multiplier; small values enforce a near-zero
 #'   spike.
-#' @param gG,gV,gH,gZ,gBeta g-prior scale factors for the first-stage sender
+#' @param gG,gV,gH,gZ,gBeta Prior scale factors for the first-stage sender
 #'   effects, the covariate effects, the first-stage receiver effects, the
-#'   receptor main effect, and the causal block (Beta_X, Beta_XZ).
+#'   receptor main effect, and the causal block (Beta_X, Beta_XZ). The first
+#'   three are Zellner g-priors on the observed designs G, V and H; the last
+#'   two scale a fixed diagonal computed once from the least-squares first
+#'   stage (see Details).
 #' @param ridge Diagonal ridge added before every matrix inversion.
 #' @param init_gamma Starting value (0 or 1) of the inclusion indicator.
 #' @param init_scale If greater than zero, Beta_X and Beta_XZ start from
 #'   independent normal draws with standard deviation `init_scale`.
 #' @param verbose Logical; if `TRUE`, a progress line is printed every 1000
 #'   iterations.
+#' @param legacy_latent_prior Logical; if `TRUE`, the priors on
+#'   (Beta_X, Beta_XZ) and Beta_Z are scaled by the current projected
+#'   regressors at every sweep, as in versions before 0.99.1. Provided so
+#'   that earlier fits can be reproduced exactly; not intended for new
+#'   analyses.
+#'
+#' @details
+#' The priors on the second-stage coefficients are
+#' \deqn{(\beta_X, \beta_{XZ}) \mid \gamma, \sigma_Y^2 \sim
+#'   N_2(0,\; g_\beta s_\gamma \sigma_Y^2 D_0^{-1}), \qquad
+#'   \beta_Z \mid \sigma_Y^2 \sim N(0,\; g_Z \sigma_Y^2 / d_Z),}
+#' with \eqn{D_0 = \mathrm{diag}(\|\hat X^*\|^2, \|\hat X^* \circ \hat Z^*\|^2)}
+#' and \eqn{d_Z = \|\hat Z^*\|^2} computed once from least squares of X on
+#' \[G V\] and of Z on \[H V\] and held fixed, and \eqn{s_\gamma = 1} in the
+#' slab and `nu1` in the spike. Because the projected regressors \eqn{X^*}
+#' and \eqn{Z^*} are functions of the first-stage parameters, a prior whose
+#' covariance was recomputed from the current draws would enter the full
+#' conditionals of those parameters; fixing the scale keeps every update an
+#' exact conjugate step. The values used are returned in `prior_scale`.
 #'
 #' @return A named list with posterior means (`Pi_X_mean`, `Alpha_X_mean`,
 #'   `Pi_Z_mean`, `Alpha_Z_mean`, `Beta_X_mean`, `Beta_XZ_mean`,
 #'   `Beta_Z_mean`, `Alpha_Y_mean`, `mu_mean`, `sigma_X_sq_mean`,
 #'   `sigma_Z_sq_mean`, `sigma_Y_sq_mean`, `gamma_mean`, `rho_mean`), the
-#'   number of retained draws `n_keep`, and the retained draws
-#'   `Beta_X_draws`, `Beta_XZ_draws`, `Beta_Z_draws`, `gamma_draws`,
-#'   `mu_draws` and `loglik_draws` (each a numeric vector of length
-#'   `n_keep`). `loglik_draws` is the joint log-likelihood of the three
-#'   equations evaluated at each retained draw, excluding prior terms.
+#'   number of retained draws `n_keep`, the retained draws `Beta_X_draws`,
+#'   `Beta_XZ_draws`, `Beta_Z_draws`, `gamma_draws`, `mu_draws` and
+#'   `loglik_draws` (each a numeric vector of length `n_keep`), and
+#'   `prior_scale`, a named numeric vector giving `d_X`, `d_XZ`, `d_Z` and
+#'   the value of `legacy_latent_prior`. `loglik_draws` is the joint
+#'   log-likelihood of the three equations evaluated at each retained draw,
+#'   excluding prior terms.
 #'
 #' @seealso [mr_ccc()] for the user-facing interface.
 #'
@@ -60,10 +84,11 @@
 #'                     sim$G, sim$H, sim$V,
 #'                     n_iter = 400, burn_in = 100, thin = 1)
 #' out$gamma_mean
+#' out$prior_scale
 #' length(out$Beta_XZ_draws) == out$n_keep
 #'
 #' @export
-mr_ccc_gibbs <- function(X, Z, Y, G, H, V, n_iter = 20000L, burn_in = 2000L, thin = 1L, a_sigma = 3.0, b_sigma = 2.0, a_rho = 3.0, b_rho = 1.0, nu1 = 1e-4, gG = 100.0, gV = 100.0, gH = 100.0, gZ = 100.0, gBeta = 100.0, ridge = 1e-8, init_gamma = 1L, init_scale = 0.0, verbose = FALSE) {
-    .Call(`_MRCCC_mr_ccc_gibbs`, X, Z, Y, G, H, V, n_iter, burn_in, thin, a_sigma, b_sigma, a_rho, b_rho, nu1, gG, gV, gH, gZ, gBeta, ridge, init_gamma, init_scale, verbose)
+mr_ccc_gibbs <- function(X, Z, Y, G, H, V, n_iter = 20000L, burn_in = 2000L, thin = 1L, a_sigma = 3.0, b_sigma = 2.0, a_rho = 3.0, b_rho = 1.0, nu1 = 1e-4, gG = 100.0, gV = 100.0, gH = 100.0, gZ = 100.0, gBeta = 100.0, ridge = 1e-8, init_gamma = 1L, init_scale = 0.0, verbose = FALSE, legacy_latent_prior = FALSE) {
+    .Call(`_MRCCC_mr_ccc_gibbs`, X, Z, Y, G, H, V, n_iter, burn_in, thin, a_sigma, b_sigma, a_rho, b_rho, nu1, gG, gV, gH, gZ, gBeta, ridge, init_gamma, init_scale, verbose, legacy_latent_prior)
 }
 

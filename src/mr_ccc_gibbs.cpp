@@ -24,8 +24,27 @@
 //
 //  Spike-and-slab prior on the causal block (Beta_X, Beta_XZ), indexed by
 //  the inclusion indicator gamma:
-//    gamma = 1 (slab):  (Beta_X, Beta_XZ) ~ N(0, gBeta * sigma_Y^2 * ([X* X*Z*]'[X* X*Z*])^{-1})
+//    gamma = 1 (slab):  (Beta_X, Beta_XZ) ~ N(0, gBeta * sigma_Y^2 * D0^{-1})
 //    gamma = 0 (spike): same form but variance scaled down by nu1  (nu1 << 1)
+//  and on the receptor main effect:
+//    Beta_Z ~ N(0, gZ * sigma_Y^2 / d_Z)
+//
+//  D0 = diag(||X^*||^2, ||X^* o Z^*||^2) and d_Z = ||Z^*||^2 are computed ONCE
+//  from the plug-in first stage (least squares of X on [G V] and of Z on
+//  [H V]) and held fixed. They scale the prior by the size of each regressor,
+//  so the prior is placed on the size of the effect on Y rather than on raw
+//  coefficients whose scale is set by units and by instrument strength.
+//  Equivalently: independent N(0, gBeta * s_gamma * sigma_Y^2) priors on the
+//  coefficients of the standardised regressors X^*/||X^*|| and
+//  X^*Z^*/||X^*Z^*||, with the standardisation fixed at the plug-in fit.
+//
+//  The scale is fixed rather than recomputed from the current draws because
+//  X^* and Z^* are functions of the first-stage parameters. A prior whose
+//  covariance depends on those parameters would add a determinant and a
+//  quadratic-form term to their full conditionals; the first-stage updates
+//  below do not carry such terms, and with a fixed scale none is needed.
+//  The plug-in values are a scale, not an estimate: X^* and Z^* in the
+//  likelihood are still rebuilt from the current draws at every sweep.
 //
 //  gamma therefore acts through the PRIOR VARIANCE of the causal block and
 //  does not multiply the mean function: under the spike the two coefficients
@@ -44,9 +63,6 @@
 //  H       (n x pH)  Receiver cis-eQTL genotypes (instruments for Z)
 //  V       (n x pV)  Shared covariates (e.g., ancestry PCs, cell proportions)
 //
-//  X, Z and Y are expected to be centred (mean zero); the intercept mu
-//  absorbs only the residual location of Y.
-//
 // MCMC SETTINGS
 //  n_iter  Total number of Gibbs iterations
 //  burn_in Burn-in length (iterations discarded before accumulation)
@@ -58,6 +74,11 @@
 //  nu1               Spike variance multiplier; nu1 << 1 enforces near-zero spike
 //  gG, gH, gV, gZ, gBeta   g-prior scale factors for each coefficient block
 //  ridge             Small diagonal perturbation for numerical stability
+//  legacy_latent_prior  If true, the priors on (Beta_X, Beta_XZ) and Beta_Z
+//                    are scaled by the CURRENT X^*, Z^* at every sweep, as
+//                    in earlier versions of this sampler, instead of by the
+//                    fixed plug-in scale. Kept so that earlier results can be
+//                    regenerated exactly; not for new analyses.
 //
 // OUTPUT
 //  Named R list containing:
@@ -76,6 +97,10 @@
 //         loglik_draws    joint log-likelihood of the three equations at the
 //                         retained draw (likelihood only; no prior terms)
 //
+//   (c) prior_scale = c(d_X, d_XZ, d_Z), the fixed plug-in scale used by the
+//       priors on (Beta_X, Beta_XZ) and Beta_Z, so that every fit records the
+//       scale it was run under.
+//
 //       Draws are required for quantities that cannot be recovered from
 //       posterior means: credible intervals for functionals such as the
 //       sign-reversal threshold tau = -Beta_X / Beta_XZ (a ratio, so it
@@ -84,7 +109,13 @@
 // =============================================================================
 
 // -----------------------------------------------------------------------------
-// INITIALISATION CONTROLS: init_gamma, init_scale
+// PROGRESS REPORTING: verbose
+//  When verbose is true, a progress line is written to the R console every
+//  1000 iterations. The default is silent, because a full analysis runs
+//  several chains on each of many triplets and the unconditional form of this
+//  message produced tens of thousands of lines.
+//
+// OPTIONAL INITIALISATION CONTROLS: init_gamma, init_scale
 // -----------------------------------------------------------------------------
 //  The Gelman-Rubin diagnostic compares chains started from OVERDISPERSED
 //  values. Chains that differ only in their random number stream share a
@@ -101,10 +132,6 @@
 //
 //  The defaults (init_gamma = 1, init_scale = 0) give a deterministic start
 //  with the slab active and both causal coefficients at zero.
-//
-//  PROGRESS REPORTING: verbose
-//    When verbose is true, a progress line is written to the R console every
-//    1000 iterations. The default is silent.
 //
 //  NOTE ON THE ARGUMENT LIST: comments inside the argument list are kept to
 //  a single trailing comment per parameter. Rcpp flattens the signature onto
@@ -140,6 +167,11 @@ inline double logsumexp2(double a, double b) {
 // =============================================================================
 // Main exported function
 // =============================================================================
+//
+// The roxygen block below (lines beginning //') is copied verbatim into
+// R/RcppExports.R by Rcpp::compileAttributes(), which is how the package
+// documentation for this function is generated. It lives here rather than in
+// RcppExports.R so that regenerating the wrapper cannot delete it.
 
 //' Gibbs sampler for the MR-CCC model
 //'
@@ -171,25 +203,49 @@ inline double logsumexp2(double a, double b) {
 //'   probability rho.
 //' @param nu1 Spike variance multiplier; small values enforce a near-zero
 //'   spike.
-//' @param gG,gV,gH,gZ,gBeta g-prior scale factors for the first-stage sender
+//' @param gG,gV,gH,gZ,gBeta Prior scale factors for the first-stage sender
 //'   effects, the covariate effects, the first-stage receiver effects, the
-//'   receptor main effect, and the causal block (Beta_X, Beta_XZ).
+//'   receptor main effect, and the causal block (Beta_X, Beta_XZ). The first
+//'   three are Zellner g-priors on the observed designs G, V and H; the last
+//'   two scale a fixed diagonal computed once from the least-squares first
+//'   stage (see Details).
 //' @param ridge Diagonal ridge added before every matrix inversion.
 //' @param init_gamma Starting value (0 or 1) of the inclusion indicator.
 //' @param init_scale If greater than zero, Beta_X and Beta_XZ start from
 //'   independent normal draws with standard deviation `init_scale`.
 //' @param verbose Logical; if `TRUE`, a progress line is printed every 1000
 //'   iterations.
+//' @param legacy_latent_prior Logical; if `TRUE`, the priors on
+//'   (Beta_X, Beta_XZ) and Beta_Z are scaled by the current projected
+//'   regressors at every sweep, as in versions before 0.99.1. Provided so
+//'   that earlier fits can be reproduced exactly; not intended for new
+//'   analyses.
+//'
+//' @details
+//' The priors on the second-stage coefficients are
+//' \deqn{(\beta_X, \beta_{XZ}) \mid \gamma, \sigma_Y^2 \sim
+//'   N_2(0,\; g_\beta s_\gamma \sigma_Y^2 D_0^{-1}), \qquad
+//'   \beta_Z \mid \sigma_Y^2 \sim N(0,\; g_Z \sigma_Y^2 / d_Z),}
+//' with \eqn{D_0 = \mathrm{diag}(\|\hat X^*\|^2, \|\hat X^* \circ \hat Z^*\|^2)}
+//' and \eqn{d_Z = \|\hat Z^*\|^2} computed once from least squares of X on
+//' \[G V\] and of Z on \[H V\] and held fixed, and \eqn{s_\gamma = 1} in the
+//' slab and `nu1` in the spike. Because the projected regressors \eqn{X^*}
+//' and \eqn{Z^*} are functions of the first-stage parameters, a prior whose
+//' covariance was recomputed from the current draws would enter the full
+//' conditionals of those parameters; fixing the scale keeps every update an
+//' exact conjugate step. The values used are returned in `prior_scale`.
 //'
 //' @return A named list with posterior means (`Pi_X_mean`, `Alpha_X_mean`,
 //'   `Pi_Z_mean`, `Alpha_Z_mean`, `Beta_X_mean`, `Beta_XZ_mean`,
 //'   `Beta_Z_mean`, `Alpha_Y_mean`, `mu_mean`, `sigma_X_sq_mean`,
 //'   `sigma_Z_sq_mean`, `sigma_Y_sq_mean`, `gamma_mean`, `rho_mean`), the
-//'   number of retained draws `n_keep`, and the retained draws
-//'   `Beta_X_draws`, `Beta_XZ_draws`, `Beta_Z_draws`, `gamma_draws`,
-//'   `mu_draws` and `loglik_draws` (each a numeric vector of length
-//'   `n_keep`). `loglik_draws` is the joint log-likelihood of the three
-//'   equations evaluated at each retained draw, excluding prior terms.
+//'   number of retained draws `n_keep`, the retained draws `Beta_X_draws`,
+//'   `Beta_XZ_draws`, `Beta_Z_draws`, `gamma_draws`, `mu_draws` and
+//'   `loglik_draws` (each a numeric vector of length `n_keep`), and
+//'   `prior_scale`, a named numeric vector giving `d_X`, `d_XZ`, `d_Z` and
+//'   the value of `legacy_latent_prior`. `loglik_draws` is the joint
+//'   log-likelihood of the three equations evaluated at each retained draw,
+//'   excluding prior terms.
 //'
 //' @seealso [mr_ccc()] for the user-facing interface.
 //'
@@ -200,6 +256,7 @@ inline double logsumexp2(double a, double b) {
 //'                     sim$G, sim$H, sim$V,
 //'                     n_iter = 400, burn_in = 100, thin = 1)
 //' out$gamma_mean
+//' out$prior_scale
 //' length(out$Beta_XZ_draws) == out$n_keep
 //'
 //' @export
@@ -227,7 +284,8 @@ List mr_ccc_gibbs(
     double ridge    = 1e-8,   // diagonal ridge for stable matrix inversion
     int    init_gamma = 1,    // starting value of the inclusion indicator
     double init_scale = 0.0,  // if > 0, Beta_X, Beta_XZ start ~ N(0, sd=init_scale)
-    bool   verbose  = false   // print a progress line every 1000 iterations
+    bool   verbose = false,   // if true, report progress every 1000 iterations
+    bool   legacy_latent_prior = false  // if true, scale Beta priors by current X*, Z* (old behaviour)
 ) {
 
   // --------------------------------------------------------------------------
@@ -293,10 +351,10 @@ List mr_ccc_gibbs(
   int    gamma = 1;    // gamma = 1: slab (active signal); gamma = 0: spike (null)
   double rho   = 0.5;  // prior inclusion probability, updated each iteration
 
-  // ---- Apply the initialisation controls ------------------------------------
-  // With the defaults (init_gamma = 1, init_scale = 0) this block leaves the
-  // deterministic start unchanged. Other values give the overdispersed starts
-  // required for a meaningful Gelman-Rubin statistic.
+  // ---- Apply optional dispersed initialisation ------------------------------
+  // With the defaults (init_gamma = 1, init_scale = 0) this block is a no-op and
+  // the chain starts exactly where it always did. Supplying other values gives
+  // the overdispersed starts required for a meaningful Gelman-Rubin statistic.
   gamma = (init_gamma == 0) ? 0 : 1;
   if (init_scale > 0.0) {
     Beta_X  = R::rnorm(0.0, init_scale);
@@ -329,7 +387,7 @@ List mr_ccc_gibbs(
   //
   // Only the six scalars needed for these purposes are stored, so the memory
   // cost is negligible (n_keep x 6 doubles; < 10 MB even for 200,000 kept
-  // draws). The high-dimensional blocks (Pi_X, Pi_Z, Alpha_*) are
+  // draws). The high-dimensional blocks (Pi_X, Pi_Z, Alpha_*) are still
   // summarised by their means only.
   //
   // The sixth scalar is the joint log-likelihood of the three equations,
@@ -356,6 +414,44 @@ List mr_ccc_gibbs(
   const arma::vec x = X.col(0);
   const arma::vec z = Z.col(0);
   const arma::vec y = Y.col(0);
+
+  // --------------------------------------------------------------------------
+  // Fixed prior scale for the second-stage coefficient blocks.
+  //
+  // Plug-in first stage: least squares of X on [G V] and of Z on [H V],
+  // regularised with the same ridge used for the Gram matrices above. The
+  // squared norms of the resulting projected regressors set the prior
+  // variance of (Beta_X, Beta_XZ) and Beta_Z for the whole run.
+  //
+  // These are computed from the observed data alone and never revisited, so
+  // the priors they scale do not depend on any parameter the sampler updates.
+  // That is what makes the first-stage updates in Steps 1, 2, 4 and 5 exact:
+  // a prior whose covariance moved with the current X*, Z* would add a
+  // determinant and a quadratic-form term to those conditionals, and the
+  // updates below carry neither. The model overview at the top of this file
+  // gives the equivalent statement in terms of standardised regressors.
+  //
+  // The ridge added to each squared norm keeps the prior proper if a plug-in
+  // regressor is numerically zero, which can happen for an interaction column
+  // when one first stage has no signal at all.
+  // --------------------------------------------------------------------------
+  const arma::mat WG = arma::join_horiz(G, V);   // (n x (pG + pV))
+  const arma::mat WH = arma::join_horiz(H, V);   // (n x (pH + pV))
+  const arma::vec theta_X = arma::solve(
+    WG.t() * WG + ridge * arma::eye(pG + pV, pG + pV), WG.t() * x);
+  const arma::vec theta_Z = arma::solve(
+    WH.t() * WH + ridge * arma::eye(pH + pV, pH + pV), WH.t() * z);
+  const arma::vec X_hat  = WG * theta_X;   // plug-in X*
+  const arma::vec Z_hat  = WH * theta_Z;   // plug-in Z*
+  const arma::vec XZ_hat = X_hat % Z_hat;  // plug-in X* o Z*
+
+  const double d_X  = arma::dot(X_hat,  X_hat)  + ridge;
+  const double d_XZ = arma::dot(XZ_hat, XZ_hat) + ridge;
+  const double d_Z  = arma::dot(Z_hat,  Z_hat)  + ridge;
+
+  arma::mat D0 = arma::zeros<arma::mat>(2, 2);   // prior precision shape for (Beta_X, Beta_XZ)
+  D0(0, 0) = d_X;
+  D0(1, 1) = d_XZ;
 
   // ==========================================================================
   // MCMC (Gibbs) loop
@@ -515,12 +611,22 @@ List mr_ccc_gibbs(
     Alpha_Y = arma::mvnrnd(m_Alpha_Y.t(), S_Alpha_Y, 1).t();
 
     // ---- Step 9: Beta_Z | rest ----------------------------------------------
-    // Scalar conjugate normal update under the g-prior for Beta_Z.
-    double cZ        = gZ / (1.0 + gZ);
+    // Scalar conjugate normal update. Prior Beta_Z ~ N(0, gZ sigma_Y^2 / d_Z)
+    // with d_Z fixed, so the posterior precision is (Z*'Z* + d_Z/gZ)/sigma_Y^2
+    // and the mean is Z*'r / (Z*'Z* + d_Z/gZ). The legacy branch scales the
+    // prior by the current Z*'Z* instead, which collapses to c * OLS.
     double ZtZ       = arma::dot(Z_Dash, Z_Dash);
     arma::vec y_resZ = y - mu - XB_Beta - V * Alpha_Y.t();
-    double m_BetaZ   = cZ * arma::dot(Z_Dash, y_resZ) / (ZtZ + ridge);
-    double v_BetaZ   = cZ * sigma_Y_sq / (ZtZ + ridge);
+    double m_BetaZ, v_BetaZ;
+    if (legacy_latent_prior) {
+      double cZ = gZ / (1.0 + gZ);
+      m_BetaZ = cZ * arma::dot(Z_Dash, y_resZ) / (ZtZ + ridge);
+      v_BetaZ = cZ * sigma_Y_sq / (ZtZ + ridge);
+    } else {
+      double aZ = ZtZ + d_Z / gZ;
+      m_BetaZ = arma::dot(Z_Dash, y_resZ) / aZ;
+      v_BetaZ = sigma_Y_sq / aZ;
+    }
     Beta_Z = R::rnorm(m_BetaZ, std::sqrt(v_BetaZ));
 
     // ---- Step 10: sigma_Y^2 | rest ------------------------------------------
@@ -530,11 +636,16 @@ List mr_ccc_gibbs(
     // Degrees contributed: n (data) + pV (Alpha_Y) + 4 (mu, Beta_X, Beta_XZ, Beta_Z).
     arma::vec resY    = y - mu - XB_Beta - Z_Dash * Beta_Z - V * Alpha_Y.t();
     double s_gamma    = (gamma == 1) ? 1.0 : nu1;  // slab or spike variance scale
-    arma::mat S_B_inv = (1.0 / gBeta) * XBeta_Star;
+
+    // Prior precision shape for the causal block: the fixed D0, or the
+    // current X_beta'X_beta under the legacy latent-scale prior. Used here for
+    // the sigma_Y^2 penalty and again in Steps 11 and 12.
+    const arma::mat& B_shape = legacy_latent_prior ? XBeta_Star : D0;
+    const double     z_shape = legacy_latent_prior ? ZtZ        : d_Z;
 
     double pen_mu = (mu * mu) / c_mu;
-    double pen_B  = arma::as_scalar(Beta_row * S_B_inv * Beta_row.t()) / s_gamma;
-    double pen_BZ = (Beta_Z * Beta_Z) * ZtZ / gZ;
+    double pen_B  = arma::as_scalar(Beta_row * B_shape * Beta_row.t()) / (gBeta * s_gamma);
+    double pen_BZ = (Beta_Z * Beta_Z) * z_shape / gZ;
     double pen_AY = arma::as_scalar(Alpha_Y * V_Star * Alpha_Y.t()) / gV;
 
     double sY_shape = a_sigma + 0.5 * (n + pV + 4.0);
@@ -543,17 +654,28 @@ List mr_ccc_gibbs(
     sigma_Y_sq = rinvgamma_1(sY_shape, sY_scale);
 
     // ---- Step 11: (Beta_X, Beta_XZ) | rest  [spike-and-slab] ---------------
-    // When gamma = 1 (slab):  g-prior with effective scale gBeta.
-    // When gamma = 0 (spike): g-prior with scale nu1 * gBeta  (near-zero prior).
-    // Both cases share the same MVN form; only the effective g-scale differs.
+    // Prior N(0, gBeta s_gamma sigma_Y^2 D0^{-1}), slab (s_gamma = 1) or spike
+    // (s_gamma = nu1). Normal prior, normal likelihood, so the posterior is
+    //   N( A^{-1} X_beta' r,  sigma_Y^2 A^{-1} ),  A = X_beta'X_beta + D0/(gBeta s_gamma).
+    // One 2 x 2 solve. The legacy branch, with the prior scaled by the current
+    // X_beta'X_beta, reduces to c * OLS with c = g_eff / (1 + g_eff).
     arma::vec y_res_B = y - mu - Z_Dash * Beta_Z - V * Alpha_Y.t();
     arma::vec rhsB    = XBeta_Dash.t() * y_res_B;  // sufficient statistic (2 x 1)
 
     {
-      double g_eff     = (gamma == 1) ? gBeta : (nu1 * gBeta);
-      double cB        = g_eff / (1.0 + g_eff);
-      arma::vec  mB    = cB * (XBeta_Star_Inv * rhsB);
-      arma::mat  SB    = cB * sigma_Y_sq * XBeta_Star_Inv;
+      arma::vec mB(2);
+      arma::mat SB(2, 2);
+      if (legacy_latent_prior) {
+        double g_eff = gBeta * s_gamma;
+        double cB    = g_eff / (1.0 + g_eff);
+        mB = cB * (XBeta_Star_Inv * rhsB);
+        SB = cB * sigma_Y_sq * XBeta_Star_Inv;
+      } else {
+        arma::mat A_inv = arma::inv_sympd(
+          XBeta_Star + D0 / (gBeta * s_gamma) + ridge * arma::eye(2, 2));
+        mB = A_inv * rhsB;
+        SB = sigma_Y_sq * A_inv;
+      }
       arma::vec draw_b = arma::mvnrnd(mB, SB, 1);
       Beta_X  = draw_b(0);
       Beta_XZ = draw_b(1);
@@ -562,9 +684,11 @@ List mr_ccc_gibbs(
     Beta_row(1) = Beta_XZ;
 
     // ---- Step 12: gamma | rest  [Bernoulli spike-and-slab] ------------------
-    // Posterior probability of gamma = 1 via the marginal likelihood ratio
-    // (slab vs. spike) combined with the Beta prior on rho.
-    double quad = arma::as_scalar(Beta_row * XBeta_Star * Beta_row.t());
+    // Posterior probability of gamma = 1 from the ratio of the two prior
+    // densities of the current Beta draw (slab vs. spike) and the prior on
+    // rho. The -log(nu1) in logB is the two-dimensional normalising-constant
+    // difference; the quadratic form uses the same shape as the prior.
+    double quad = arma::as_scalar(Beta_row * B_shape * Beta_row.t());
     double logA = -0.5 * quad / (sigma_Y_sq * gBeta)
       + std::log(rho);
     double logB = -0.5 * quad / (sigma_Y_sq * gBeta * nu1)
@@ -647,6 +771,10 @@ List mr_ccc_gibbs(
       }
     }
 
+    // Progress reporting is OFF by default. A full analysis runs several
+    // chains on each of many triplets, so an unconditional line every 1000
+    // iterations produces tens of thousands of lines and buries the summary
+    // the script actually reports.
     if (verbose && (it % 1000 == 0))
       Rcpp::Rcout << "Iteration " << it << " / " << n_iter << " completed.\n";
 
@@ -658,10 +786,10 @@ List mr_ccc_gibbs(
   const double denom = static_cast<double>(save_idx > 0 ? save_idx : 1);
 
   // Rcpp's List::create accepts at most twenty arguments, and the return value
-  // carries twenty-one elements. The list is therefore allocated at its final
+  // carries twenty-two elements. The list is therefore allocated at its final
   // length and filled position by position, with the names assigned together at
   // the end so that each name stays adjacent to the value it labels.
-  const int n_out = 21;
+  const int n_out = 22;
   List out(n_out);
   CharacterVector out_names(n_out);
   int k = 0;
@@ -693,6 +821,17 @@ List mr_ccc_gibbs(
   out[k] = gamma_draws.head(save_idx);      out_names[k] = "gamma_draws";   ++k;
   out[k] = mu_draws.head(save_idx);         out_names[k] = "mu_draws";      ++k;
   out[k] = loglik_draws.head(save_idx);     out_names[k] = "loglik_draws";  ++k;
+
+  // ---- Prior scale actually used ------------------------------------------
+  // Recorded so that any fit can be checked against the scale it was run
+  // under. Under the legacy prior these are still the plug-in values, which
+  // the legacy branch does not use; the flag itself is recorded alongside.
+  NumericVector prior_scale = NumericVector::create(
+    Named("d_X")  = d_X,
+    Named("d_XZ") = d_XZ,
+    Named("d_Z")  = d_Z,
+    Named("legacy_latent_prior") = legacy_latent_prior ? 1.0 : 0.0);
+  out[k] = prior_scale;                     out_names[k] = "prior_scale";   ++k;
 
   out.attr("names") = out_names;
   return out;

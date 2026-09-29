@@ -24,12 +24,17 @@
 #'   `b_sigma`, `a_rho`, `b_rho`, `nu1`, `g` and `ridge`.
 #'
 #' @details
-#' Under the g-prior, each coefficient block \eqn{\theta} with design
-#' \eqn{D} has prior \eqn{\theta \sim N(0, g\,\sigma^2 (D^\top D)^{-1})}. The
-#' default \eqn{g = \min(n, 100)} follows the unit-information convention for
-#' small samples and caps the prior dispersion for large ones. The spike-and-
-#' slab prior on the causal block uses the same form with scale \eqn{g} in
-#' the slab and \eqn{\nu_1 g} in the spike.
+#' Each first-stage block \eqn{\theta} with observed design \eqn{D} (the
+#' genotype matrices \eqn{G}, \eqn{H} or the covariates \eqn{V}) has the
+#' Zellner g-prior \eqn{\theta \sim N(0, g\,\sigma^2 (D^\top D)^{-1})}. The
+#' second-stage blocks \eqn{(\beta_X, \beta_{XZ})} and \eqn{\beta_Z} use the
+#' same scale \eqn{g} but against a fixed diagonal computed once from the
+#' least-squares first stage, because their regressors \eqn{X^*} and
+#' \eqn{Z^*} are themselves parameters of the model; see the *Priors* section
+#' of [mr_ccc()]. The default \eqn{g = \min(n, 100)} follows the
+#' unit-information convention for small samples and caps the prior
+#' dispersion for large ones. The spike-and-slab prior on the causal block
+#' uses scale \eqn{g} in the slab and \eqn{\nu_1 g} in the spike.
 #'
 #' @seealso [mr_ccc()]
 #'
