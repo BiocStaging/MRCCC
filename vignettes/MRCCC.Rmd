@@ -62,9 +62,10 @@ Y_i = \mu + \gamma\,(\beta_X X_i^* + \beta_{XZ} X_i^* Z_i^*) + \beta_Z Z_i^*
     + \alpha_Y^\top V_i + \varepsilon_{Yi},
 $$
 where $\gamma \in \{0, 1\}$ is a spike-and-slab inclusion indicator on the
-causal block $(\beta_X, \beta_{XZ})$. Because $X^*$ and $Z^*$ depend on
-genotype only, they are unaffected by the unmeasured confounders that
-distort a naive regression of $Y$ on $X$ and $Z$. All three stages are
+causal block $(\beta_X, \beta_{XZ})$. Because $X^*$ and $Z^*$ depend only
+on genotype and the observed covariates, they are unaffected by the
+unmeasured confounders that distort a naive regression of $Y$ on $X$ and
+$Z$. All three stages are
 estimated jointly by a blocked Gibbs sampler.
 
 The posterior inclusion probability $\mathrm{PIP} = P(\gamma = 1 \mid
@@ -72,7 +73,9 @@ The posterior inclusion probability $\mathrm{PIP} = P(\gamma = 1 \mid
 effect is $\beta_X + \beta_{XZ} z$, which changes sign at $\tau = -\beta_X /
 \beta_{XZ}$: when $\tau$ lies inside the observed receptor range, the ligand
 activates the pathway in some donors and suppresses it in others. The model
-requires $X$, $Z$ and $Y$ to be centred; `mr_ccc()` does this internally and
+requires $X$, $Z$ and $Y$, and every column of $G$, $H$ and $V$, to be
+centred, because neither first stage has an intercept; `mr_ccc()` does this
+internally and
 reports effects on a standardised scale (per standard deviation of $X$ and
 $Z$, in standard deviations of $Y$) alongside the raw scale.
 
@@ -92,7 +95,8 @@ sim$truth
 
 # Fitting the model
 
-`mr_ccc()` validates the inputs, centres $X$, $Z$ and $Y$, runs the Gibbs
+`mr_ccc()` validates the inputs, centres $X$, $Z$, $Y$ and the columns of
+$G$, $H$ and $V$, runs the Gibbs
 sampler, and pools the retained draws. The chain length below is kept short
 so that this document builds quickly; the section on chain length discusses
 the settings appropriate for reported results.
@@ -169,8 +173,9 @@ sr <- sign_reversal(fit, Z_observed = sim$Z)
 sr[c("tau_median", "tau_lower", "tau_upper", "Z_range_std", "p_in_range")]
 ```
 
-In this simulation the true threshold is $-0.3 / 0.3 = -1$ raw unit of $Z$,
-which corresponds to `r round(-1 / sd(sim$Z), 2)` standard deviations.
+In this simulation the true threshold is $Z = -0.3 / 0.3 = -1$, which
+corresponds to `r round((-1 - mean(sim$Z)) / sd(sim$Z), 2)` standard
+deviations from the mean receptor expression.
 
 ## Effect curve
 

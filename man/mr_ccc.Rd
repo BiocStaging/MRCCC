@@ -44,8 +44,7 @@ instrument the receptor (at least one column).}
 \item{V}{Numeric matrix with \eqn{n} rows of shared donor covariates
 (for example genotype principal components, age or sex). At least one
 column is required; supplying \code{NULL} is an error. When no covariates are
-available, pass a single centred, non-constant column such as
-standardised age.}
+available, pass a single non-constant column such as age.}
 
 \item{n_iter}{Total number of Gibbs iterations per chain.}
 
@@ -58,10 +57,10 @@ retained.}
 \item{n_chains}{Number of independent chains, pooled for all posterior
 summaries. With two or more chains the Gelman-Rubin statistic is reported
 and the chains start from dispersed values. Pooling \code{C} chains of \code{n_iter}
-iterations gives the same Monte Carlo precision as one chain of
-\code{C * n_iter}, because per-chain standard errors combine in quadrature, so
-raising \code{n_chains} is an alternative to raising \code{n_iter} rather than an
-additional cost.}
+iterations gives roughly the Monte Carlo precision of one chain of
+\code{C * (n_iter - burn_in)} retained draws, because per-chain standard errors
+combine in quadrature; each chain repeats the burn-in, which is the only
+extra cost.}
 
 \item{init_scale}{Standard deviation of the normal distribution from which
 \eqn{\beta_X} and \eqn{\beta_{XZ}} are initialised when \code{n_chains > 1}.
@@ -75,11 +74,11 @@ summary methods.}
 \item{hyper}{Prior hyperparameters, as returned by
 \code{\link[=mrccc_hyperparameters]{mrccc_hyperparameters()}}.}
 
-\item{seed}{Optional integer; if supplied, the random number generator is
-seeded once before the first chain, which makes the whole multi-chain fit
-reproducible as a unit. The default \code{NULL} leaves the generator untouched,
-so a caller who prefers to manage the random number stream themselves can
-simply call \code{\link[=set.seed]{set.seed()}} beforehand and omit this argument.}
+\item{seed}{Optional integer; if supplied, the chains are run under this
+seed, which makes the whole multi-chain fit reproducible as a unit, and
+the caller's random number state is restored afterwards. The default
+\code{NULL} uses the current random number stream, so a caller can equally
+call \code{\link[=set.seed]{set.seed()}} beforehand and omit this argument.}
 
 \item{verbose}{Logical; if \code{TRUE}, each chain prints a progress line every
 1000 iterations.}
@@ -105,12 +104,14 @@ means) and \code{Z_range_std} (range of the centred receptor expression in
 standard-deviation units).}
 \item{\code{diagnostics}}{Data frame with columns \code{parameter} (\code{beta_X},
 \code{beta_XZ}, \code{gamma}, \code{loglik}) and \code{rhat}.}
-\item{\code{instruments}}{Data frame with one row per exposure (\code{X}, \code{Z})
-and columns \code{n_instruments}, \code{F_statistic} (first-stage partial F of
-the instrument block after the covariates) and \code{weak} (\code{TRUE} when
-\code{F_statistic < 10}).}
+\item{\code{instruments}}{Data frame with one row per exposure and columns
+\code{exposure} (\code{X} or \code{Z}), \code{n_instruments}, \code{F_statistic} (first-stage
+partial F of the instrument block after the covariates) and \code{weak}
+(\code{TRUE} when \code{F_statistic < 10}).}
 \item{\code{settings}}{List with \code{n_iter}, \code{burn_in}, \code{thin}, \code{n_chains},
-\code{n_keep} (retained draws per chain), \code{pip_threshold} and \code{hyper}.}
+\code{n_keep} (retained draws per chain), \code{pip_threshold}, \code{hyper}, \code{g}
+(the g-prior scale used) and \code{prior_scale} (the fixed second-stage
+prior scale \code{d_X}, \code{d_XZ}, \code{d_Z}).}
 \item{\code{call}}{The matched call.}
 }
 }
@@ -142,9 +143,12 @@ communication score. The receptor-modulated ligand effect is
 \eqn{\beta_X + \beta_{XZ} z}, which changes sign at
 \eqn{\tau = -\beta_X / \beta_{XZ}}; see \code{\link[=sign_reversal]{sign_reversal()}}.
 
-\strong{Centring.} The model requires \code{X}, \code{Z} and \code{Y} to have mean zero.
-They are centred internally; the standard deviations of the original
-inputs are stored in the \code{scale} element so that effects can be reported
+\strong{Centring.} The model requires \code{X}, \code{Z} and \code{Y}, and every column of
+\code{G}, \code{H} and \code{V}, to have mean zero: neither first stage carries an
+intercept, so uncentred instruments or covariates would force each
+first-stage fit through the origin. All six inputs are centred internally.
+The standard deviations of the original \code{X}, \code{Z} and \code{Y} are stored in the
+\code{scale} element so that effects can be reported
 on a standardised scale (per standard deviation of \eqn{X} and \eqn{Z}, in
 standard deviations of \eqn{Y}).
 
@@ -200,9 +204,15 @@ log-likelihood. It compares the variance between chains with the variance
 within them, so it requires \code{n_chains >= 2} and is \code{NA} for a single chain;
 it is also only informative when the chains start from dispersed values,
 which \code{init_scale > 0} and the alternating \eqn{\gamma} start provide.
-Values below 1.01 are conventionally taken as consistent with convergence.
-Because a useful \eqn{\hat R} is the reason to run several chains at all,
-the default \code{n_chains} is 4.
+Values below 1.01 are conventionally taken as consistent with convergence;
+a warning is issued when any \eqn{\hat R} exceeds 1.01, and a message when
+only one chain is run. Because a useful \eqn{\hat R} is the reason to run
+several chains at all, the default \code{n_chains} is 4.
+
+\strong{Units.} The g-priors are invariant to the scale of the inputs, but the
+inverse-gamma priors on the residual variances are not: their defaults
+assume that \code{X}, \code{Z} and \code{Y} are on a scale of roughly unit variance.
+Inputs on very different scales should be standardised first.
 }
 \examples{
 sim <- simulate_mrccc(n = 150, seed = 1)

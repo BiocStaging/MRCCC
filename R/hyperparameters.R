@@ -2,7 +2,11 @@
 #'
 #' Constructs and validates the list of prior hyperparameters used by
 #' [mr_ccc()]. The defaults are those used throughout the MR-CCC analyses and
-#' are weakly informative for expression data on a log scale.
+#' are weakly informative for inputs on a scale of roughly unit variance:
+#' with several hundred donors the likelihood then dominates the
+#' inverse-gamma and beta priors. The inverse-gamma priors are not invariant
+#' to the units of `X`, `Z` and `Y`, so inputs on very different scales
+#' should be standardised before fitting.
 #'
 #' @param a_sigma,b_sigma Shape and scale of the inverse-gamma prior on the
 #'   three residual variances \eqn{\sigma_X^2, \sigma_Z^2, \sigma_Y^2}. Both

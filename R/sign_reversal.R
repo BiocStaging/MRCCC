@@ -19,6 +19,12 @@
 #' two marginal summaries would misstate the uncertainty because the two
 #' coefficients are strongly correlated a posteriori. Draws in which
 #' \eqn{|\beta_{XZ}| < 10^{-8}} are dropped, since \eqn{\tau} diverges there.
+#' All remaining draws are used, including those from the spike
+#' (\eqn{\gamma = 0}); for a fit with a PIP well below one, the threshold is
+#' therefore best interpreted together with the PIP. Note that the model's
+#' interaction acts on the genetically predicted receptor level \eqn{Z^*},
+#' whereas `p_in_range` refers to the range of the observed receptor
+#' expression.
 #'
 #' **Scale.** [mr_ccc()] centres \eqn{Z} before fitting, so on the raw scale
 #' \eqn{\tau_{\mathrm{raw}} = -\beta_X / \beta_{XZ}} is expressed in the
@@ -74,9 +80,10 @@ sign_reversal <- function(fit, Z_observed = NULL, level = 0.95) {
   if (is.null(Z_observed)) {
     z_rng <- fit$scale$Z_range_std
   } else {
-    if (!is.numeric(Z_observed) || any(!is.finite(Z_observed))) {
-      stop("'Z_observed' must be a numeric vector without missing values.",
-           call. = FALSE)
+    if (!is.numeric(Z_observed) || length(Z_observed) < 2L ||
+        any(!is.finite(Z_observed))) {
+      stop("'Z_observed' must be a numeric vector of length at least 2 ",
+           "without missing values.", call. = FALSE)
     }
     z_rng <- range((as.numeric(Z_observed) - fit$scale$mean_Z) / sd_Z)
   }

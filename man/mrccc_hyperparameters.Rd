@@ -42,7 +42,11 @@ A named list of class \code{mrccc_hyper} with elements \code{a_sigma},
 \description{
 Constructs and validates the list of prior hyperparameters used by
 \code{\link[=mr_ccc]{mr_ccc()}}. The defaults are those used throughout the MR-CCC analyses and
-are weakly informative for expression data on a log scale.
+are weakly informative for inputs on a scale of roughly unit variance:
+with several hundred donors the likelihood then dominates the
+inverse-gamma and beta priors. The inverse-gamma priors are not invariant
+to the units of \code{X}, \code{Z} and \code{Y}, so inputs on very different scales
+should be standardised before fitting.
 }
 \details{
 Each first-stage block \eqn{\theta} with observed design \eqn{D} (the

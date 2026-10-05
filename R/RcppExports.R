@@ -16,11 +16,13 @@
 #'   the receiver cell type.
 #' @param Y Numeric matrix of dimension n x 1: centred pathway activity in
 #'   the receiver cell type.
-#' @param G Numeric matrix of dimension n x pG: sender cis-eQTL genotypes
-#'   (instruments for X).
-#' @param H Numeric matrix of dimension n x pH: receiver cis-eQTL genotypes
-#'   (instruments for Z).
-#' @param V Numeric matrix of dimension n x pV, pV >= 1: shared covariates.
+#' @param G Numeric matrix of dimension n x pG: column-centred sender
+#'   cis-eQTL genotypes (instruments for X).
+#' @param H Numeric matrix of dimension n x pH: column-centred receiver
+#'   cis-eQTL genotypes (instruments for Z).
+#' @param V Numeric matrix of dimension n x pV, pV >= 1: column-centred
+#'   shared covariates. The first stages have no intercept, so all three
+#'   design matrices must be centred, as [mr_ccc()] does.
 #' @param n_iter Total number of Gibbs iterations.
 #' @param burn_in Number of initial iterations discarded.
 #' @param thin Thinning interval; every `thin`-th post-burn-in iteration is
@@ -43,11 +45,6 @@
 #'   independent normal draws with standard deviation `init_scale`.
 #' @param verbose Logical; if `TRUE`, a progress line is printed every 1000
 #'   iterations.
-#' @param legacy_latent_prior Logical; if `TRUE`, the priors on
-#'   (Beta_X, Beta_XZ) and Beta_Z are scaled by the current projected
-#'   regressors at every sweep, as in versions before 0.99.1. Provided so
-#'   that earlier fits can be reproduced exactly; not intended for new
-#'   analyses.
 #'
 #' @details
 #' The priors on the second-stage coefficients are
@@ -70,8 +67,8 @@
 #'   number of retained draws `n_keep`, the retained draws `Beta_X_draws`,
 #'   `Beta_XZ_draws`, `Beta_Z_draws`, `gamma_draws`, `mu_draws` and
 #'   `loglik_draws` (each a numeric vector of length `n_keep`), and
-#'   `prior_scale`, a named numeric vector giving `d_X`, `d_XZ`, `d_Z` and
-#'   the value of `legacy_latent_prior`. `loglik_draws` is the joint
+#'   `prior_scale`, a named numeric vector giving `d_X`, `d_XZ` and `d_Z`.
+#'   `loglik_draws` is the joint
 #'   log-likelihood of the three equations evaluated at each retained draw,
 #'   excluding prior terms.
 #'
@@ -80,15 +77,16 @@
 #' @examples
 #' sim <- simulate_mrccc(n = 120, seed = 1)
 #' ctr <- function(v) matrix(v - mean(v), ncol = 1)
+#' ctr_cols <- function(M) scale(M, center = TRUE, scale = FALSE)
 #' out <- mr_ccc_gibbs(ctr(sim$X), ctr(sim$Z), ctr(sim$Y),
-#'                     sim$G, sim$H, sim$V,
+#'                     ctr_cols(sim$G), ctr_cols(sim$H), ctr_cols(sim$V),
 #'                     n_iter = 400, burn_in = 100, thin = 1)
 #' out$gamma_mean
 #' out$prior_scale
 #' length(out$Beta_XZ_draws) == out$n_keep
 #'
 #' @export
-mr_ccc_gibbs <- function(X, Z, Y, G, H, V, n_iter = 20000L, burn_in = 2000L, thin = 1L, a_sigma = 3.0, b_sigma = 2.0, a_rho = 3.0, b_rho = 1.0, nu1 = 1e-4, gG = 100.0, gV = 100.0, gH = 100.0, gZ = 100.0, gBeta = 100.0, ridge = 1e-8, init_gamma = 1L, init_scale = 0.0, verbose = FALSE, legacy_latent_prior = FALSE) {
-    .Call(`_MRCCC_mr_ccc_gibbs`, X, Z, Y, G, H, V, n_iter, burn_in, thin, a_sigma, b_sigma, a_rho, b_rho, nu1, gG, gV, gH, gZ, gBeta, ridge, init_gamma, init_scale, verbose, legacy_latent_prior)
+mr_ccc_gibbs <- function(X, Z, Y, G, H, V, n_iter = 20000L, burn_in = 2000L, thin = 1L, a_sigma = 3.0, b_sigma = 2.0, a_rho = 3.0, b_rho = 1.0, nu1 = 1e-4, gG = 100.0, gV = 100.0, gH = 100.0, gZ = 100.0, gBeta = 100.0, ridge = 1e-8, init_gamma = 1L, init_scale = 0.0, verbose = FALSE) {
+    .Call(`_MRCCC_mr_ccc_gibbs`, X, Z, Y, G, H, V, n_iter, burn_in, thin, a_sigma, b_sigma, a_rho, b_rho, nu1, gG, gV, gH, gZ, gBeta, ridge, init_gamma, init_scale, verbose)
 }
 

@@ -45,6 +45,12 @@ obtained from paired draws of \eqn{(\beta_X, \beta_{XZ})}; combining the
 two marginal summaries would misstate the uncertainty because the two
 coefficients are strongly correlated a posteriori. Draws in which
 \eqn{|\beta_{XZ}| < 10^{-8}} are dropped, since \eqn{\tau} diverges there.
+All remaining draws are used, including those from the spike
+(\eqn{\gamma = 0}); for a fit with a PIP well below one, the threshold is
+therefore best interpreted together with the PIP. Note that the model's
+interaction acts on the genetically predicted receptor level \eqn{Z^*},
+whereas \code{p_in_range} refers to the range of the observed receptor
+expression.
 
 \strong{Scale.} \code{\link[=mr_ccc]{mr_ccc()}} centres \eqn{Z} before fitting, so on the raw scale
 \eqn{\tau_{\mathrm{raw}} = -\beta_X / \beta_{XZ}} is expressed in the

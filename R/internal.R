@@ -150,6 +150,39 @@ std_factors <- function(fit) {
     beta_Z  = s$sd_Z / s$sd_Y)
 }
 
+# ---- Centring and rank ------------------------------------------------------
+
+#' Subtract each column's mean
+#'
+#' The design matrices G, H and V enter the first stages without an
+#' intercept, so they must be centred like X, Z and Y.
+#'
+#' @param M Numeric matrix.
+#' @return `M` with every column centred.
+#' @noRd
+#' @keywords internal
+center_columns <- function(M) {
+  M - matrix(colMeans(M), nrow(M), ncol(M), byrow = TRUE)
+}
+
+#' Stop when a centred design matrix is rank deficient
+#'
+#' @param W Numeric matrix.
+#' @param name Name used in the error message.
+#' @return `invisible(TRUE)`; called for its error.
+#' @noRd
+#' @keywords internal
+check_rank <- function(W, name) {
+  r <- qr(W)$rank
+  if (r < ncol(W)) {
+    stop("'", name, "' is rank deficient after centring (",
+         ncol(W) - r, " redundant column(s)); for example one variant ",
+         "coded on both alleles, or a full set of dummy variables. ",
+         "Remove the redundant columns.", call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
 # ---- Instrument strength ----------------------------------------------------
 
 #' First-stage partial F statistic

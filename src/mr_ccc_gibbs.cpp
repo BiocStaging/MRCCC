@@ -74,11 +74,6 @@
 //  nu1               Spike variance multiplier; nu1 << 1 enforces near-zero spike
 //  gG, gH, gV, gZ, gBeta   g-prior scale factors for each coefficient block
 //  ridge             Small diagonal perturbation for numerical stability
-//  legacy_latent_prior  If true, the priors on (Beta_X, Beta_XZ) and Beta_Z
-//                    are scaled by the CURRENT X^*, Z^* at every sweep, as
-//                    in earlier versions of this sampler, instead of by the
-//                    fixed plug-in scale. Kept so that earlier results can be
-//                    regenerated exactly; not for new analyses.
 //
 // OUTPUT
 //  Named R list containing:
@@ -112,8 +107,7 @@
 // PROGRESS REPORTING: verbose
 //  When verbose is true, a progress line is written to the R console every
 //  1000 iterations. The default is silent, because a full analysis runs
-//  several chains on each of many triplets and the unconditional form of this
-//  message produced tens of thousands of lines.
+//  several chains on each of many triplets.
 //
 // OPTIONAL INITIALISATION CONTROLS: init_gamma, init_scale
 // -----------------------------------------------------------------------------
@@ -163,6 +157,19 @@ inline double logsumexp2(double a, double b) {
   return m + std::log(std::exp(a - m) + std::exp(b - m));
 }
 
+// Inverse of a symmetric positive-definite matrix, stopping with an
+// informative message instead of a raw Armadillo error when the matrix is
+// numerically singular (for example, collinear instruments or covariates).
+inline arma::mat safe_inv_sympd(const arma::mat& A, const char* what) {
+  arma::mat out;
+  if (!arma::inv_sympd(out, A)) {
+    Rcpp::stop("Numerical failure inverting the %s matrix; check for "
+               "collinear instruments or covariates, or increase 'ridge'.",
+               what);
+  }
+  return out;
+}
+
 
 // =============================================================================
 // Main exported function
@@ -188,11 +195,13 @@ inline double logsumexp2(double a, double b) {
 //'   the receiver cell type.
 //' @param Y Numeric matrix of dimension n x 1: centred pathway activity in
 //'   the receiver cell type.
-//' @param G Numeric matrix of dimension n x pG: sender cis-eQTL genotypes
-//'   (instruments for X).
-//' @param H Numeric matrix of dimension n x pH: receiver cis-eQTL genotypes
-//'   (instruments for Z).
-//' @param V Numeric matrix of dimension n x pV, pV >= 1: shared covariates.
+//' @param G Numeric matrix of dimension n x pG: column-centred sender
+//'   cis-eQTL genotypes (instruments for X).
+//' @param H Numeric matrix of dimension n x pH: column-centred receiver
+//'   cis-eQTL genotypes (instruments for Z).
+//' @param V Numeric matrix of dimension n x pV, pV >= 1: column-centred
+//'   shared covariates. The first stages have no intercept, so all three
+//'   design matrices must be centred, as [mr_ccc()] does.
 //' @param n_iter Total number of Gibbs iterations.
 //' @param burn_in Number of initial iterations discarded.
 //' @param thin Thinning interval; every `thin`-th post-burn-in iteration is
@@ -215,11 +224,6 @@ inline double logsumexp2(double a, double b) {
 //'   independent normal draws with standard deviation `init_scale`.
 //' @param verbose Logical; if `TRUE`, a progress line is printed every 1000
 //'   iterations.
-//' @param legacy_latent_prior Logical; if `TRUE`, the priors on
-//'   (Beta_X, Beta_XZ) and Beta_Z are scaled by the current projected
-//'   regressors at every sweep, as in versions before 0.99.1. Provided so
-//'   that earlier fits can be reproduced exactly; not intended for new
-//'   analyses.
 //'
 //' @details
 //' The priors on the second-stage coefficients are
@@ -242,8 +246,8 @@ inline double logsumexp2(double a, double b) {
 //'   number of retained draws `n_keep`, the retained draws `Beta_X_draws`,
 //'   `Beta_XZ_draws`, `Beta_Z_draws`, `gamma_draws`, `mu_draws` and
 //'   `loglik_draws` (each a numeric vector of length `n_keep`), and
-//'   `prior_scale`, a named numeric vector giving `d_X`, `d_XZ`, `d_Z` and
-//'   the value of `legacy_latent_prior`. `loglik_draws` is the joint
+//'   `prior_scale`, a named numeric vector giving `d_X`, `d_XZ` and `d_Z`.
+//'   `loglik_draws` is the joint
 //'   log-likelihood of the three equations evaluated at each retained draw,
 //'   excluding prior terms.
 //'
@@ -252,8 +256,9 @@ inline double logsumexp2(double a, double b) {
 //' @examples
 //' sim <- simulate_mrccc(n = 120, seed = 1)
 //' ctr <- function(v) matrix(v - mean(v), ncol = 1)
+//' ctr_cols <- function(M) scale(M, center = TRUE, scale = FALSE)
 //' out <- mr_ccc_gibbs(ctr(sim$X), ctr(sim$Z), ctr(sim$Y),
-//'                     sim$G, sim$H, sim$V,
+//'                     ctr_cols(sim$G), ctr_cols(sim$H), ctr_cols(sim$V),
 //'                     n_iter = 400, burn_in = 100, thin = 1)
 //' out$gamma_mean
 //' out$prior_scale
@@ -284,8 +289,7 @@ List mr_ccc_gibbs(
     double ridge    = 1e-8,   // diagonal ridge for stable matrix inversion
     int    init_gamma = 1,    // starting value of the inclusion indicator
     double init_scale = 0.0,  // if > 0, Beta_X, Beta_XZ start ~ N(0, sd=init_scale)
-    bool   verbose = false,   // if true, report progress every 1000 iterations
-    bool   legacy_latent_prior = false  // if true, scale Beta priors by current X*, Z* (old behaviour)
+    bool   verbose = false    // if true, report progress every 1000 iterations
 ) {
 
   // --------------------------------------------------------------------------
@@ -297,6 +301,30 @@ List mr_ccc_gibbs(
   const int pV = V.n_cols;
 
   // --------------------------------------------------------------------------
+  // Input checks. mr_ccc() validates its inputs before calling this function;
+  // these checks protect direct calls, where a bad value would otherwise end
+  // in an obscure linear-algebra error or, for thin = 0, a division by zero.
+  // --------------------------------------------------------------------------
+  if (n < 2 || X.n_cols != 1 || Z.n_cols != 1 || Y.n_cols != 1)
+    Rcpp::stop("'X', 'Z' and 'Y' must be n x 1 matrices with n >= 2.");
+  if ((int) Z.n_rows != n || (int) Y.n_rows != n || (int) G.n_rows != n ||
+      (int) H.n_rows != n || (int) V.n_rows != n)
+    Rcpp::stop("All inputs must have the same number of rows.");
+  if (pG < 1 || pH < 1 || pV < 1)
+    Rcpp::stop("'G', 'H' and 'V' must each have at least one column.");
+  if (n_iter < 1 || burn_in < 0 || burn_in >= n_iter)
+    Rcpp::stop("Require n_iter >= 1 and 0 <= burn_in < n_iter.");
+  if (thin < 1)
+    Rcpp::stop("'thin' must be an integer >= 1.");
+  if (!(nu1 > 0.0 && nu1 < 1.0))
+    Rcpp::stop("'nu1' must lie strictly between 0 and 1.");
+  if (!(a_sigma > 0.0 && b_sigma > 0.0 && a_rho > 0.0 && b_rho > 0.0))
+    Rcpp::stop("'a_sigma', 'b_sigma', 'a_rho' and 'b_rho' must be positive.");
+  if (!(gG > 0.0 && gV > 0.0 && gH > 0.0 && gZ > 0.0 && gBeta > 0.0) ||
+      ridge < 0.0)
+    Rcpp::stop("The g scales must be positive and 'ridge' non-negative.");
+
+  // --------------------------------------------------------------------------
   // Precompute Gram matrices and regularized inverses.
   // These are fixed throughout the MCMC and reused at every iteration.
   // --------------------------------------------------------------------------
@@ -304,9 +332,9 @@ List mr_ccc_gibbs(
   const arma::mat V_Star = V.t() * V;  // (pV x pV)
   const arma::mat H_Star = H.t() * H;  // (pH x pH)
 
-  const arma::mat G_Star_Inv = arma::inv_sympd(G_Star + ridge * arma::eye(pG, pG));
-  const arma::mat V_Star_Inv = arma::inv_sympd(V_Star + ridge * arma::eye(pV, pV));
-  const arma::mat H_Star_Inv = arma::inv_sympd(H_Star + ridge * arma::eye(pH, pH));
+  const arma::mat G_Star_Inv = safe_inv_sympd(G_Star + ridge * arma::eye(pG, pG), "G'G");
+  const arma::mat V_Star_Inv = safe_inv_sympd(V_Star + ridge * arma::eye(pV, pV), "V'V");
+  const arma::mat H_Star_Inv = safe_inv_sympd(H_Star + ridge * arma::eye(pH, pH), "H'H");
 
   // Projection matrices (X'X)^{-1} X' -- appear in g-prior posterior means
   const arma::mat G_Tilde = G_Star_Inv * G.t();  // (pG x n)
@@ -352,9 +380,9 @@ List mr_ccc_gibbs(
   double rho   = 0.5;  // prior inclusion probability, updated each iteration
 
   // ---- Apply optional dispersed initialisation ------------------------------
-  // With the defaults (init_gamma = 1, init_scale = 0) this block is a no-op and
-  // the chain starts exactly where it always did. Supplying other values gives
-  // the overdispersed starts required for a meaningful Gelman-Rubin statistic.
+  // With the defaults (init_gamma = 1, init_scale = 0) the chain starts with the
+  // slab active and both causal coefficients at zero. Other values give the
+  // overdispersed starts required for a meaningful Gelman-Rubin statistic.
   gamma = (init_gamma == 0) ? 0 : 1;
   if (init_scale > 0.0) {
     Beta_X  = R::rnorm(0.0, init_scale);
@@ -460,6 +488,9 @@ List mr_ccc_gibbs(
 
   for (int it = 1; it <= n_iter; ++it) {
 
+    // Allow long runs to be interrupted from R.
+    if (it % 1000 == 0) Rcpp::checkUserInterrupt();
+
     // IV-projected receiver expression and the resulting coefficient of X in Y
     // (computed from parameters at the start of the iteration)
     arma::vec Z_Dash  = H * Pi_Z.t() + V * Alpha_Z.t();  // Z* = IV-projected receptor  (n x 1)
@@ -474,10 +505,10 @@ List mr_ccc_gibbs(
     // Y-equation likelihood (X* = G*Pi_X + V*Alpha_X enters Y through WX_diag).
     arma::mat GW = G.each_col() % WX_diag;  // G weighted by dY/dX*  (n x pG)
 
-    arma::mat Sigma_Pi_X = arma::inv_sympd(
+    arma::mat Sigma_Pi_X = safe_inv_sympd(
       (1.0 / sigma_X_sq) * (1.0 + 1.0 / gG) * G_Star +
       (1.0 / sigma_Y_sq) * (GW.t() * GW) +
-      ridge * arma::eye(pG, pG));
+      ridge * arma::eye(pG, pG), "Pi_X precision");
 
     arma::vec rhs_PiX =
       (1.0 / sigma_X_sq) * G.t() * (x - V * Alpha_X.t()) +
@@ -493,10 +524,10 @@ List mr_ccc_gibbs(
     // Same structure as Pi_X but for the covariate block V.
     arma::mat VW = V.each_col() % WX_diag;  // V weighted by dY/dX*  (n x pV)
 
-    arma::mat Sigma_Alpha_X = arma::inv_sympd(
+    arma::mat Sigma_Alpha_X = safe_inv_sympd(
       (1.0 / sigma_X_sq) * (1.0 + 1.0 / gV) * V_Star +
       (1.0 / sigma_Y_sq) * (VW.t() * VW) +
-      ridge * arma::eye(pV, pV));
+      ridge * arma::eye(pV, pV), "Alpha_X precision");
 
     arma::vec rhs_AlphaX =
       (1.0 / sigma_X_sq) * V.t() * (x - G * Pi_X.t()) +
@@ -529,10 +560,10 @@ List mr_ccc_gibbs(
     // ---- Step 4: Pi_Z | rest ------------------------------------------------
     arma::mat HW = H.each_col() % WZ_diag;  // H weighted by dY/dZ*  (n x pH)
 
-    arma::mat Sigma_Pi_Z = arma::inv_sympd(
+    arma::mat Sigma_Pi_Z = safe_inv_sympd(
       (1.0 / sigma_Z_sq) * (1.0 + 1.0 / gH) * H_Star +
       (1.0 / sigma_Y_sq) * (HW.t() * HW) +
-      ridge * arma::eye(pH, pH));
+      ridge * arma::eye(pH, pH), "Pi_Z precision");
 
     arma::vec rhs_PiZ =
       (1.0 / sigma_Z_sq) * H.t() * (z - V * Alpha_Z.t()) +
@@ -547,10 +578,10 @@ List mr_ccc_gibbs(
     // ---- Step 5: Alpha_Z | rest ---------------------------------------------
     arma::mat VWz = V.each_col() % WZ_diag;  // V weighted by dY/dZ*  (n x pV)
 
-    arma::mat Sigma_Alpha_Z = arma::inv_sympd(
+    arma::mat Sigma_Alpha_Z = safe_inv_sympd(
       (1.0 / sigma_Z_sq) * (1.0 + 1.0 / gV) * V_Star +
       (1.0 / sigma_Y_sq) * (VWz.t() * VWz) +
-      ridge * arma::eye(pV, pV));
+      ridge * arma::eye(pV, pV), "Alpha_Z precision");
 
     arma::vec rhs_AlphaZ =
       (1.0 / sigma_Z_sq) * V.t() * (z - H * Pi_Z.t()) +
@@ -586,8 +617,7 @@ List mr_ccc_gibbs(
     XBeta_Dash.col(0) = X_Dash;
     XBeta_Dash.col(1) = XZ_Dash;
 
-    arma::mat XBeta_Star     = XBeta_Dash.t() * XBeta_Dash;                      // (2 x 2)
-    arma::mat XBeta_Star_Inv = arma::inv_sympd(XBeta_Star + ridge * arma::eye(2, 2));
+    arma::mat XBeta_Star = XBeta_Dash.t() * XBeta_Dash;   // (2 x 2)
 
     // Predicted Y from causal block -- used as offset in downstream steps
     arma::vec XB_Beta = X_Dash * Beta_X + XZ_Dash * Beta_XZ;                     // (n x 1)
@@ -613,20 +643,12 @@ List mr_ccc_gibbs(
     // ---- Step 9: Beta_Z | rest ----------------------------------------------
     // Scalar conjugate normal update. Prior Beta_Z ~ N(0, gZ sigma_Y^2 / d_Z)
     // with d_Z fixed, so the posterior precision is (Z*'Z* + d_Z/gZ)/sigma_Y^2
-    // and the mean is Z*'r / (Z*'Z* + d_Z/gZ). The legacy branch scales the
-    // prior by the current Z*'Z* instead, which collapses to c * OLS.
+    // and the mean is Z*'r / (Z*'Z* + d_Z/gZ).
     double ZtZ       = arma::dot(Z_Dash, Z_Dash);
     arma::vec y_resZ = y - mu - XB_Beta - V * Alpha_Y.t();
-    double m_BetaZ, v_BetaZ;
-    if (legacy_latent_prior) {
-      double cZ = gZ / (1.0 + gZ);
-      m_BetaZ = cZ * arma::dot(Z_Dash, y_resZ) / (ZtZ + ridge);
-      v_BetaZ = cZ * sigma_Y_sq / (ZtZ + ridge);
-    } else {
-      double aZ = ZtZ + d_Z / gZ;
-      m_BetaZ = arma::dot(Z_Dash, y_resZ) / aZ;
-      v_BetaZ = sigma_Y_sq / aZ;
-    }
+    double aZ        = ZtZ + d_Z / gZ;
+    double m_BetaZ   = arma::dot(Z_Dash, y_resZ) / aZ;
+    double v_BetaZ   = sigma_Y_sq / aZ;
     Beta_Z = R::rnorm(m_BetaZ, std::sqrt(v_BetaZ));
 
     // ---- Step 10: sigma_Y^2 | rest ------------------------------------------
@@ -637,11 +659,11 @@ List mr_ccc_gibbs(
     arma::vec resY    = y - mu - XB_Beta - Z_Dash * Beta_Z - V * Alpha_Y.t();
     double s_gamma    = (gamma == 1) ? 1.0 : nu1;  // slab or spike variance scale
 
-    // Prior precision shape for the causal block: the fixed D0, or the
-    // current X_beta'X_beta under the legacy latent-scale prior. Used here for
-    // the sigma_Y^2 penalty and again in Steps 11 and 12.
-    const arma::mat& B_shape = legacy_latent_prior ? XBeta_Star : D0;
-    const double     z_shape = legacy_latent_prior ? ZtZ        : d_Z;
+    // Prior precision shape for the causal block (the fixed D0) and for
+    // Beta_Z (the fixed d_Z). Used here for the sigma_Y^2 penalty and again in
+    // Steps 11 and 12.
+    const arma::mat& B_shape = D0;
+    const double     z_shape = d_Z;
 
     double pen_mu = (mu * mu) / c_mu;
     double pen_B  = arma::as_scalar(Beta_row * B_shape * Beta_row.t()) / (gBeta * s_gamma);
@@ -657,25 +679,18 @@ List mr_ccc_gibbs(
     // Prior N(0, gBeta s_gamma sigma_Y^2 D0^{-1}), slab (s_gamma = 1) or spike
     // (s_gamma = nu1). Normal prior, normal likelihood, so the posterior is
     //   N( A^{-1} X_beta' r,  sigma_Y^2 A^{-1} ),  A = X_beta'X_beta + D0/(gBeta s_gamma).
-    // One 2 x 2 solve. The legacy branch, with the prior scaled by the current
-    // X_beta'X_beta, reduces to c * OLS with c = g_eff / (1 + g_eff).
+    // One 2 x 2 solve.
     arma::vec y_res_B = y - mu - Z_Dash * Beta_Z - V * Alpha_Y.t();
     arma::vec rhsB    = XBeta_Dash.t() * y_res_B;  // sufficient statistic (2 x 1)
 
     {
       arma::vec mB(2);
       arma::mat SB(2, 2);
-      if (legacy_latent_prior) {
-        double g_eff = gBeta * s_gamma;
-        double cB    = g_eff / (1.0 + g_eff);
-        mB = cB * (XBeta_Star_Inv * rhsB);
-        SB = cB * sigma_Y_sq * XBeta_Star_Inv;
-      } else {
-        arma::mat A_inv = arma::inv_sympd(
-          XBeta_Star + D0 / (gBeta * s_gamma) + ridge * arma::eye(2, 2));
-        mB = A_inv * rhsB;
-        SB = sigma_Y_sq * A_inv;
-      }
+      arma::mat A_inv = safe_inv_sympd(
+        XBeta_Star + D0 / (gBeta * s_gamma) + ridge * arma::eye(2, 2),
+        "causal-block precision");
+      mB = A_inv * rhsB;
+      SB = sigma_Y_sq * A_inv;
       arma::vec draw_b = arma::mvnrnd(mB, SB, 1);
       Beta_X  = draw_b(0);
       Beta_XZ = draw_b(1);
@@ -771,10 +786,8 @@ List mr_ccc_gibbs(
       }
     }
 
-    // Progress reporting is OFF by default. A full analysis runs several
-    // chains on each of many triplets, so an unconditional line every 1000
-    // iterations produces tens of thousands of lines and buries the summary
-    // the script actually reports.
+    // Progress reporting is off by default: a full analysis runs several
+    // chains on each of many triplets.
     if (verbose && (it % 1000 == 0))
       Rcpp::Rcout << "Iteration " << it << " / " << n_iter << " completed.\n";
 
@@ -824,13 +837,11 @@ List mr_ccc_gibbs(
 
   // ---- Prior scale actually used ------------------------------------------
   // Recorded so that any fit can be checked against the scale it was run
-  // under. Under the legacy prior these are still the plug-in values, which
-  // the legacy branch does not use; the flag itself is recorded alongside.
+  // under.
   NumericVector prior_scale = NumericVector::create(
     Named("d_X")  = d_X,
     Named("d_XZ") = d_XZ,
-    Named("d_Z")  = d_Z,
-    Named("legacy_latent_prior") = legacy_latent_prior ? 1.0 : 0.0);
+    Named("d_Z")  = d_Z);
   out[k] = prior_scale;                     out_names[k] = "prior_scale";   ++k;
 
   out.attr("names") = out_names;

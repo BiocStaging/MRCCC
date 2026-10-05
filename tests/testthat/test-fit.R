@@ -89,6 +89,19 @@ test_that("a seed makes the fit reproducible", {
   expect_identical(fit2$draws$beta_XZ, fit$draws$beta_XZ)
 })
 
+test_that("shifting instrument or covariate columns leaves the fit unchanged", {
+  G2 <- sim$G + 2
+  V2 <- sim$V + 5
+  fit_shift <- suppressWarnings(
+    mr_ccc(sim$X, sim$Z, sim$Y, G2, sim$H, V2,
+           n_iter = 1500, burn_in = 300, seed = 1)
+  )
+  expect_equal(fit_shift$pip, fit$pip, tolerance = 1e-8)
+  expect_equal(fit_shift$draws$beta_XZ, fit$draws$beta_XZ, tolerance = 1e-6)
+  expect_equal(fit_shift$settings$prior_scale, fit$settings$prior_scale,
+               tolerance = 1e-8)
+})
+
 test_that("vector inputs are accepted and give the same result as matrices", {
   fit3 <- suppressWarnings(
     mr_ccc(as.numeric(sim$X), as.numeric(sim$Z), as.numeric(sim$Y),
@@ -135,20 +148,49 @@ test_that("plot methods return a ggplot object", {
 
 test_that("the compiled sampler honours n_keep and verbose", {
   ctr <- function(v) matrix(v - mean(v), ncol = 1)
+  ctr_cols <- function(M) scale(M, center = TRUE, scale = FALSE)
+  Gc <- ctr_cols(sim$G); Hc <- ctr_cols(sim$H); Vc <- ctr_cols(sim$V)
   out <- mr_ccc_gibbs(ctr(sim$X), ctr(sim$Z), ctr(sim$Y),
-                      sim$G, sim$H, sim$V,
+                      Gc, Hc, Vc,
                       n_iter = 300, burn_in = 100, thin = 2)
   expect_equal(out$n_keep, 100L)
   expect_length(out$gamma_draws, 100L)
   expect_length(out$loglik_draws, 100L)
   expect_true(all(is.finite(out$loglik_draws)))
   expect_silent(
-    mr_ccc_gibbs(ctr(sim$X), ctr(sim$Z), ctr(sim$Y), sim$G, sim$H, sim$V,
+    mr_ccc_gibbs(ctr(sim$X), ctr(sim$Z), ctr(sim$Y), Gc, Hc, Vc,
                  n_iter = 1000, burn_in = 100, thin = 10)
   )
   expect_output(
-    mr_ccc_gibbs(ctr(sim$X), ctr(sim$Z), ctr(sim$Y), sim$G, sim$H, sim$V,
+    mr_ccc_gibbs(ctr(sim$X), ctr(sim$Z), ctr(sim$Y), Gc, Hc, Vc,
                  n_iter = 1000, burn_in = 100, thin = 10, verbose = TRUE),
     "Iteration 1000 / 1000"
+  )
+  expect_named(out$prior_scale, c("d_X", "d_XZ", "d_Z"))
+})
+
+test_that("the compiled sampler rejects invalid arguments", {
+  ctr <- function(v) matrix(v - mean(v), ncol = 1)
+  ctr_cols <- function(M) scale(M, center = TRUE, scale = FALSE)
+  Gc <- ctr_cols(sim$G); Hc <- ctr_cols(sim$H); Vc <- ctr_cols(sim$V)
+  expect_error(
+    mr_ccc_gibbs(ctr(sim$X), ctr(sim$Z), ctr(sim$Y), Gc, Hc, Vc,
+                 n_iter = 300, burn_in = 100, thin = 0),
+    "thin"
+  )
+  expect_error(
+    mr_ccc_gibbs(ctr(sim$X), ctr(sim$Z), ctr(sim$Y), Gc, Hc, Vc,
+                 n_iter = 100, burn_in = 100),
+    "burn_in"
+  )
+  expect_error(
+    mr_ccc_gibbs(ctr(sim$X), ctr(sim$Z), ctr(sim$Y), Gc[-1, , drop = FALSE],
+                 Hc, Vc, n_iter = 300, burn_in = 100),
+    "same number of rows"
+  )
+  expect_error(
+    mr_ccc_gibbs(ctr(sim$X), ctr(sim$Z), ctr(sim$Y), Gc, Hc, Vc,
+                 n_iter = 300, burn_in = 100, nu1 = 0),
+    "nu1"
   )
 })

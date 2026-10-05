@@ -12,8 +12,8 @@ Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
 // mr_ccc_gibbs
-List mr_ccc_gibbs(const arma::mat& X, const arma::mat& Z, const arma::mat& Y, const arma::mat& G, const arma::mat& H, const arma::mat& V, int n_iter, int burn_in, int thin, double a_sigma, double b_sigma, double a_rho, double b_rho, double nu1, double gG, double gV, double gH, double gZ, double gBeta, double ridge, int init_gamma, double init_scale, bool verbose, bool legacy_latent_prior);
-RcppExport SEXP _MRCCC_mr_ccc_gibbs(SEXP XSEXP, SEXP ZSEXP, SEXP YSEXP, SEXP GSEXP, SEXP HSEXP, SEXP VSEXP, SEXP n_iterSEXP, SEXP burn_inSEXP, SEXP thinSEXP, SEXP a_sigmaSEXP, SEXP b_sigmaSEXP, SEXP a_rhoSEXP, SEXP b_rhoSEXP, SEXP nu1SEXP, SEXP gGSEXP, SEXP gVSEXP, SEXP gHSEXP, SEXP gZSEXP, SEXP gBetaSEXP, SEXP ridgeSEXP, SEXP init_gammaSEXP, SEXP init_scaleSEXP, SEXP verboseSEXP, SEXP legacy_latent_priorSEXP) {
+List mr_ccc_gibbs(const arma::mat& X, const arma::mat& Z, const arma::mat& Y, const arma::mat& G, const arma::mat& H, const arma::mat& V, int n_iter, int burn_in, int thin, double a_sigma, double b_sigma, double a_rho, double b_rho, double nu1, double gG, double gV, double gH, double gZ, double gBeta, double ridge, int init_gamma, double init_scale, bool verbose);
+RcppExport SEXP _MRCCC_mr_ccc_gibbs(SEXP XSEXP, SEXP ZSEXP, SEXP YSEXP, SEXP GSEXP, SEXP HSEXP, SEXP VSEXP, SEXP n_iterSEXP, SEXP burn_inSEXP, SEXP thinSEXP, SEXP a_sigmaSEXP, SEXP b_sigmaSEXP, SEXP a_rhoSEXP, SEXP b_rhoSEXP, SEXP nu1SEXP, SEXP gGSEXP, SEXP gVSEXP, SEXP gHSEXP, SEXP gZSEXP, SEXP gBetaSEXP, SEXP ridgeSEXP, SEXP init_gammaSEXP, SEXP init_scaleSEXP, SEXP verboseSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -40,14 +40,13 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< int >::type init_gamma(init_gammaSEXP);
     Rcpp::traits::input_parameter< double >::type init_scale(init_scaleSEXP);
     Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
-    Rcpp::traits::input_parameter< bool >::type legacy_latent_prior(legacy_latent_priorSEXP);
-    rcpp_result_gen = Rcpp::wrap(mr_ccc_gibbs(X, Z, Y, G, H, V, n_iter, burn_in, thin, a_sigma, b_sigma, a_rho, b_rho, nu1, gG, gV, gH, gZ, gBeta, ridge, init_gamma, init_scale, verbose, legacy_latent_prior));
+    rcpp_result_gen = Rcpp::wrap(mr_ccc_gibbs(X, Z, Y, G, H, V, n_iter, burn_in, thin, a_sigma, b_sigma, a_rho, b_rho, nu1, gG, gV, gH, gZ, gBeta, ridge, init_gamma, init_scale, verbose));
     return rcpp_result_gen;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_MRCCC_mr_ccc_gibbs", (DL_FUNC) &_MRCCC_mr_ccc_gibbs, 24},
+    {"_MRCCC_mr_ccc_gibbs", (DL_FUNC) &_MRCCC_mr_ccc_gibbs, 23},
     {NULL, NULL, 0}
 };
 

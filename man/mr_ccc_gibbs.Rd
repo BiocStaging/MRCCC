@@ -27,8 +27,7 @@ mr_ccc_gibbs(
   ridge = 1e-08,
   init_gamma = 1L,
   init_scale = 0,
-  verbose = FALSE,
-  legacy_latent_prior = FALSE
+  verbose = FALSE
 )
 }
 \arguments{
@@ -41,13 +40,15 @@ the receiver cell type.}
 \item{Y}{Numeric matrix of dimension n x 1: centred pathway activity in
 the receiver cell type.}
 
-\item{G}{Numeric matrix of dimension n x pG: sender cis-eQTL genotypes
-(instruments for X).}
+\item{G}{Numeric matrix of dimension n x pG: column-centred sender
+cis-eQTL genotypes (instruments for X).}
 
-\item{H}{Numeric matrix of dimension n x pH: receiver cis-eQTL genotypes
-(instruments for Z).}
+\item{H}{Numeric matrix of dimension n x pH: column-centred receiver
+cis-eQTL genotypes (instruments for Z).}
 
-\item{V}{Numeric matrix of dimension n x pV, pV >= 1: shared covariates.}
+\item{V}{Numeric matrix of dimension n x pV, pV >= 1: column-centred
+shared covariates. The first stages have no intercept, so all three
+design matrices must be centred, as \code{\link[=mr_ccc]{mr_ccc()}} does.}
 
 \item{n_iter}{Total number of Gibbs iterations.}
 
@@ -81,12 +82,6 @@ independent normal draws with standard deviation \code{init_scale}.}
 
 \item{verbose}{Logical; if \code{TRUE}, a progress line is printed every 1000
 iterations.}
-
-\item{legacy_latent_prior}{Logical; if \code{TRUE}, the priors on
-(Beta_X, Beta_XZ) and Beta_Z are scaled by the current projected
-regressors at every sweep, as in versions before 0.99.1. Provided so
-that earlier fits can be reproduced exactly; not intended for new
-analyses.}
 }
 \value{
 A named list with posterior means (\code{Pi_X_mean}, \code{Alpha_X_mean},
@@ -96,8 +91,8 @@ A named list with posterior means (\code{Pi_X_mean}, \code{Alpha_X_mean},
 number of retained draws \code{n_keep}, the retained draws \code{Beta_X_draws},
 \code{Beta_XZ_draws}, \code{Beta_Z_draws}, \code{gamma_draws}, \code{mu_draws} and
 \code{loglik_draws} (each a numeric vector of length \code{n_keep}), and
-\code{prior_scale}, a named numeric vector giving \code{d_X}, \code{d_XZ}, \code{d_Z} and
-the value of \code{legacy_latent_prior}. \code{loglik_draws} is the joint
+\code{prior_scale}, a named numeric vector giving \code{d_X}, \code{d_XZ} and \code{d_Z}.
+\code{loglik_draws} is the joint
 log-likelihood of the three equations evaluated at each retained draw,
 excluding prior terms.
 }
@@ -126,8 +121,9 @@ exact conjugate step. The values used are returned in \code{prior_scale}.
 \examples{
 sim <- simulate_mrccc(n = 120, seed = 1)
 ctr <- function(v) matrix(v - mean(v), ncol = 1)
+ctr_cols <- function(M) scale(M, center = TRUE, scale = FALSE)
 out <- mr_ccc_gibbs(ctr(sim$X), ctr(sim$Z), ctr(sim$Y),
-                    sim$G, sim$H, sim$V,
+                    ctr_cols(sim$G), ctr_cols(sim$H), ctr_cols(sim$V),
                     n_iter = 400, burn_in = 100, thin = 1)
 out$gamma_mean
 out$prior_scale

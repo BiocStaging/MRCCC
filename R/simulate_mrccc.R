@@ -17,8 +17,9 @@
 #'   target gene (instrument strength).
 #' @param conf_strength Loading of the unmeasured confounder \eqn{U} on
 #'   \eqn{X}, \eqn{Z} and \eqn{Y}. Zero removes confounding.
-#' @param seed Optional integer used to seed the random number generator
-#'   before simulation. The default `NULL` leaves the generator untouched.
+#' @param seed Optional integer; if supplied, the data are simulated under
+#'   this seed and the caller's random number state is restored afterwards.
+#'   The default `NULL` uses the current random number stream.
 #'
 #' @details
 #' With \eqn{G_{ij}, H_{ij}, V_{ij}, U_i \sim N(0, 1)} independently, the
@@ -78,7 +79,7 @@ simulate_mrccc <- function(n = 300, pG = 5, pH = 5, pV = 3,
     if (seed != round(seed)) {
       stop("'seed' must be a whole number.", call. = FALSE)
     }
-    set.seed(as.integer(seed))
+    withr::local_seed(as.integer(seed))
   }
   n <- as.integer(n); pG <- as.integer(pG)
   pH <- as.integer(pH); pV <- as.integer(pV)

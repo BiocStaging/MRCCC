@@ -168,3 +168,24 @@ test_that("helper functions reject objects that are not fits", {
   expect_error(sign_reversal("a"), "must be an object of class")
   expect_error(plot_effect_curve(NULL), "must be an object of class")
 })
+
+test_that("rank-deficient designs are rejected after centring", {
+  sim <- simulate_mrccc(n = 120, seed = 3)
+  G_bad <- cbind(sim$G, 2 - sim$G[, 1])
+  expect_error(
+    mr_ccc(sim$X, sim$Z, sim$Y, G_bad, sim$H, sim$V,
+           n_iter = 300, burn_in = 100, seed = 1),
+    "rank deficient"
+  )
+})
+
+test_that("a supplied seed leaves the caller's random number state intact", {
+  sim <- simulate_mrccc(n = 120, seed = 3)
+  set.seed(99)
+  before <- runif(1)
+  set.seed(99)
+  invisible(suppressWarnings(suppressMessages(
+    mr_ccc(sim$X, sim$Z, sim$Y, sim$G, sim$H, sim$V,
+           n_iter = 300, burn_in = 100, seed = 1))))
+  expect_identical(runif(1), before)
+})

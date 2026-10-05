@@ -25,8 +25,7 @@
 #' @param V Numeric matrix with \eqn{n} rows of shared donor covariates
 #'   (for example genotype principal components, age or sex). At least one
 #'   column is required; supplying `NULL` is an error. When no covariates are
-#'   available, pass a single centred, non-constant column such as
-#'   standardised age.
+#'   available, pass a single non-constant column such as age.
 #' @param n_iter Total number of Gibbs iterations per chain.
 #' @param burn_in Number of initial iterations discarded per chain. Must be
 #'   smaller than `n_iter`.
@@ -35,10 +34,10 @@
 #' @param n_chains Number of independent chains, pooled for all posterior
 #'   summaries. With two or more chains the Gelman-Rubin statistic is reported
 #'   and the chains start from dispersed values. Pooling `C` chains of `n_iter`
-#'   iterations gives the same Monte Carlo precision as one chain of
-#'   `C * n_iter`, because per-chain standard errors combine in quadrature, so
-#'   raising `n_chains` is an alternative to raising `n_iter` rather than an
-#'   additional cost.
+#'   iterations gives roughly the Monte Carlo precision of one chain of
+#'   `C * (n_iter - burn_in)` retained draws, because per-chain standard errors
+#'   combine in quadrature; each chain repeats the burn-in, which is the only
+#'   extra cost.
 #' @param init_scale Standard deviation of the normal distribution from which
 #'   \eqn{\beta_X} and \eqn{\beta_{XZ}} are initialised when `n_chains > 1`.
 #'   With a single chain the sampler starts deterministically at zero.
@@ -48,11 +47,11 @@
 #'   summary methods.
 #' @param hyper Prior hyperparameters, as returned by
 #'   [mrccc_hyperparameters()].
-#' @param seed Optional integer; if supplied, the random number generator is
-#'   seeded once before the first chain, which makes the whole multi-chain fit
-#'   reproducible as a unit. The default `NULL` leaves the generator untouched,
-#'   so a caller who prefers to manage the random number stream themselves can
-#'   simply call [set.seed()] beforehand and omit this argument.
+#' @param seed Optional integer; if supplied, the chains are run under this
+#'   seed, which makes the whole multi-chain fit reproducible as a unit, and
+#'   the caller's random number state is restored afterwards. The default
+#'   `NULL` uses the current random number stream, so a caller can equally
+#'   call [set.seed()] beforehand and omit this argument.
 #' @param verbose Logical; if `TRUE`, each chain prints a progress line every
 #'   1000 iterations.
 #'
@@ -74,9 +73,12 @@
 #' \eqn{\beta_X + \beta_{XZ} z}, which changes sign at
 #' \eqn{\tau = -\beta_X / \beta_{XZ}}; see [sign_reversal()].
 #'
-#' **Centring.** The model requires `X`, `Z` and `Y` to have mean zero.
-#' They are centred internally; the standard deviations of the original
-#' inputs are stored in the `scale` element so that effects can be reported
+#' **Centring.** The model requires `X`, `Z` and `Y`, and every column of
+#' `G`, `H` and `V`, to have mean zero: neither first stage carries an
+#' intercept, so uncentred instruments or covariates would force each
+#' first-stage fit through the origin. All six inputs are centred internally.
+#' The standard deviations of the original `X`, `Z` and `Y` are stored in the
+#' `scale` element so that effects can be reported
 #' on a standardised scale (per standard deviation of \eqn{X} and \eqn{Z}, in
 #' standard deviations of \eqn{Y}).
 #'
@@ -132,9 +134,15 @@
 #' within them, so it requires `n_chains >= 2` and is `NA` for a single chain;
 #' it is also only informative when the chains start from dispersed values,
 #' which `init_scale > 0` and the alternating \eqn{\gamma} start provide.
-#' Values below 1.01 are conventionally taken as consistent with convergence.
-#' Because a useful \eqn{\hat R} is the reason to run several chains at all,
-#' the default `n_chains` is 4.
+#' Values below 1.01 are conventionally taken as consistent with convergence;
+#' a warning is issued when any \eqn{\hat R} exceeds 1.01, and a message when
+#' only one chain is run. Because a useful \eqn{\hat R} is the reason to run
+#' several chains at all, the default `n_chains` is 4.
+#'
+#' **Units.** The g-priors are invariant to the scale of the inputs, but the
+#' inverse-gamma priors on the residual variances are not: their defaults
+#' assume that `X`, `Z` and `Y` are on a scale of roughly unit variance.
+#' Inputs on very different scales should be standardised first.
 #'
 #' @return An object of class `mrccc_fit`: a list with elements
 #' \describe{
@@ -156,12 +164,14 @@
 #'     standard-deviation units).}
 #'   \item{`diagnostics`}{Data frame with columns `parameter` (`beta_X`,
 #'     `beta_XZ`, `gamma`, `loglik`) and `rhat`.}
-#'   \item{`instruments`}{Data frame with one row per exposure (`X`, `Z`)
-#'     and columns `n_instruments`, `F_statistic` (first-stage partial F of
-#'     the instrument block after the covariates) and `weak` (`TRUE` when
-#'     `F_statistic < 10`).}
+#'   \item{`instruments`}{Data frame with one row per exposure and columns
+#'     `exposure` (`X` or `Z`), `n_instruments`, `F_statistic` (first-stage
+#'     partial F of the instrument block after the covariates) and `weak`
+#'     (`TRUE` when `F_statistic < 10`).}
 #'   \item{`settings`}{List with `n_iter`, `burn_in`, `thin`, `n_chains`,
-#'     `n_keep` (retained draws per chain), `pip_threshold` and `hyper`.}
+#'     `n_keep` (retained draws per chain), `pip_threshold`, `hyper`, `g`
+#'     (the g-prior scale used) and `prior_scale` (the fixed second-stage
+#'     prior scale `d_X`, `d_XZ`, `d_Z`).}
 #'   \item{`call`}{The matched call.}
 #' }
 #'
@@ -309,8 +319,9 @@ mr_ccc <- function(X, Z, Y, G, H, V = NULL,
   n_chains <- as.integer(n_chains)
 
   # ---- Centring and scale -------------------------------------------------
-  # The model requires X, Z and Y to have mean zero. The standard deviations
-  # of the original inputs are retained for the standardised effect scale.
+  # The model requires X, Z and Y, and every column of G, H and V, to have
+  # mean zero: the first stages have no intercept. The standard deviations of
+  # the original X, Z and Y are retained for the standardised effect scale.
   sd_X <- sd(X[, 1L]); sd_Z <- sd(Z[, 1L]); sd_Y <- sd(Y[, 1L])
   if (any(!is.finite(c(sd_X, sd_Z, sd_Y))) || any(c(sd_X, sd_Z, sd_Y) <= 0)) {
     stop("'X', 'Z' and 'Y' must each have positive standard deviation.",
@@ -321,6 +332,16 @@ mr_ccc <- function(X, Z, Y, G, H, V = NULL,
   Zc <- Z - mean_Z
   Yc <- Y - mean_Y
   Z_range_std <- range(Zc[, 1L] / sd_Z)
+  Gc <- center_columns(G)
+  Hc <- center_columns(H)
+  Vc <- center_columns(V)
+
+  # After centring, each first stage regresses on [G V] or [H V]. A rank
+  # deficiency there (for example one variant coded on both alleles, or a
+  # full set of dummy variables in V) leaves the model unidentified, so it is
+  # rejected with an explicit message rather than left to the ridge.
+  check_rank(cbind(Gc, Vc), "cbind(G, V)")
+  check_rank(cbind(Hc, Vc), "cbind(H, V)")
 
   # ---- Instrument strength ------------------------------------------------
   # First-stage partial F for each exposure: the F test of the instrument
@@ -355,16 +376,15 @@ mr_ccc <- function(X, Z, Y, G, H, V = NULL,
   g_val <- if (is.null(hyper$g)) min(n, 100) else hyper$g
 
   # ---- Run the chains -----------------------------------------------------
-  # The generator is seeded ONLY when the caller supplies a seed; with the
-  # default seed = NULL it is left untouched and the chains draw from the
-  # ambient stream. Seeding here rather than asking the caller to do it makes a
-  # multi-chain fit reproducible as a unit: the chains run consecutively
-  # through one stream, so a single seed fixes all of them.
-  if (!is.null(seed)) set.seed(as.integer(seed))
+  # When a seed is supplied the chains run under it and the caller's random
+  # number state is restored on exit; with the default seed = NULL the chains
+  # draw from the current stream. The chains run consecutively through one
+  # stream, so a single seed fixes all of them.
+  if (!is.null(seed)) withr::local_seed(as.integer(seed))
   fits <- vector("list", n_chains)
   for (cc in seq_len(n_chains)) {
     fits[[cc]] <- mr_ccc_gibbs(
-      Xc, Zc, Yc, G, H, V,
+      Xc, Zc, Yc, Gc, Hc, Vc,
       n_iter = n_iter, burn_in = burn_in, thin = thin,
       a_sigma = hyper$a_sigma, b_sigma = hyper$b_sigma,
       a_rho = hyper$a_rho, b_rho = hyper$b_rho,
@@ -436,15 +456,33 @@ mr_ccc <- function(X, Z, Y, G, H, V = NULL,
     stringsAsFactors = FALSE
   )
 
+  # ---- Convergence messages ------------------------------------------------
+  rh  <- diagnostics$rhat
+  bad <- !is.na(rh) & (is.infinite(rh) | rh > 1.01)
+  if (any(bad)) {
+    warning("Gelman-Rubin R-hat exceeds 1.01 for ",
+            paste(diagnostics$parameter[bad], collapse = ", "),
+            ": the chains have not mixed. Increase 'n_iter' and 'burn_in'.",
+            call. = FALSE)
+  }
+  if (n_chains == 1L) {
+    message("Only one chain was run, so R-hat is unavailable; use ",
+            "n_chains >= 2 to assess convergence.")
+  }
+  if (!is.finite(pip_mcse)) {
+    message("The Monte Carlo uncertainty of the PIP could not be ",
+            "estimated (too few retained draws per chain, or a constant ",
+            "gamma chain), so the borderline check was skipped.")
+  }
+
   # ---- Borderline warning -------------------------------------------------
   # The default n_iter is deliberately modest so that a first call returns
   # quickly. When the PIP lands close enough to the threshold that Monte Carlo
-  # error alone could move it across, the warning names the concrete lengths
-  # that resolved the published analysis rather than advising "increase
-  # n_iter" without a scale. Because the MCSE falls as the reciprocal square
-  # root of the number of draws, moving from 20,000 to 100,000 roughly halves
-  # it and 400,000 roughly quarters it; the suggested next step therefore
-  # depends on how far the PIP currently sits from the threshold.
+  # error alone could move it across, the warning suggests concrete chain
+  # lengths. Because the MCSE falls as the reciprocal square root of the
+  # number of draws, moving from 20,000 to 100,000 roughly halves it and
+  # 400,000 roughly quarters it; the suggested next step therefore depends on
+  # the current chain length.
   if (is.finite(pip_mcse) && abs(pip - pip_threshold) < 2 * pip_mcse) {
     suggestion <- if (n_iter < 100000L) {
       "Increase 'n_iter' to 100000, or to 400000 if the PIP remains borderline"
@@ -479,6 +517,7 @@ mr_ccc <- function(X, Z, Y, G, H, V = NULL,
       settings    = list(n_iter = n_iter, burn_in = burn_in, thin = thin,
                          n_chains = n_chains, n_keep = n_keep,
                          pip_threshold = pip_threshold, hyper = hyper,
+                         g = g_val,
                          # Fixed plug-in scale of the second-stage priors.
                          # Deterministic in the data, so identical across
                          # chains; taken from the first.

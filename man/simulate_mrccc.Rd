@@ -38,8 +38,9 @@ target gene (instrument strength).}
 \item{conf_strength}{Loading of the unmeasured confounder \eqn{U} on
 \eqn{X}, \eqn{Z} and \eqn{Y}. Zero removes confounding.}
 
-\item{seed}{Optional integer used to seed the random number generator
-before simulation. The default \code{NULL} leaves the generator untouched.}
+\item{seed}{Optional integer; if supplied, the data are simulated under
+this seed and the caller's random number state is restored afterwards.
+The default \code{NULL} uses the current random number stream.}
 }
 \value{
 A list with elements \code{X}, \code{Z}, \code{Y} (numeric matrices of dimension
