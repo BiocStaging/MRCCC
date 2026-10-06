@@ -1,7 +1,7 @@
 Package: MRCCC
 Type: Package
 Title: Bayesian Mendelian Randomization for Causal Cell-Cell Communication
-Version: 0.99.2
+Version: 0.99.3
 Authors@R: c(
     person("Bitan", "Sarkar", email = "bitansarkar010899@gmail.com",
            role = c("aut", "cre"),

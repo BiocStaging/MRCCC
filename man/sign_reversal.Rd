@@ -43,8 +43,12 @@ sign, from paired posterior draws of an MR-CCC fit.
 \eqn{\tau} is a ratio of two parameters, so its posterior can only be
 obtained from paired draws of \eqn{(\beta_X, \beta_{XZ})}; combining the
 two marginal summaries would misstate the uncertainty because the two
-coefficients are strongly correlated a posteriori. Draws in which
-\eqn{|\beta_{XZ}| < 10^{-8}} are dropped, since \eqn{\tau} diverges there.
+coefficients are strongly correlated a posteriori. Draws in which the
+standardised interaction is negligible,
+\eqn{|\beta_{XZ}^{(s)}| = |\beta_{XZ}|\,\mathrm{sd}(X)\,\mathrm{sd}(Z) /
+\mathrm{sd}(Y) \le 10^{-8}}, are dropped, since \eqn{\tau} diverges there.
+Applying the cutoff on the standardised scale makes it independent of the
+units of \eqn{X}, \eqn{Z} and \eqn{Y}.
 All remaining draws are used, including those from the spike
 (\eqn{\gamma = 0}); for a fit with a PIP well below one, the threshold is
 therefore best interpreted together with the PIP. Note that the model's

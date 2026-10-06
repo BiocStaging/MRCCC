@@ -53,7 +53,7 @@ test_that("first-stage F is reported and is large for strong simulated instrumen
   expect_false(any(fi$weak))
 
   # Weak instruments: pure-noise genotypes give F near 1 and a message.
-  set.seed(4)
+  withr::local_seed(4)
   G_noise <- matrix(stats::rnorm(nrow(sim$G) * ncol(sim$G)), nrow(sim$G))
   expect_message(
     fit_w <- suppressWarnings(

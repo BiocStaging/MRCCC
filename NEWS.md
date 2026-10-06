@@ -1,3 +1,11 @@
+# MRCCC 0.99.3
+
+* `V` is now a required argument of `mr_ccc()`.
+* `sign_reversal()` uses a scale-free cutoff for near-zero interaction
+  draws: a draw is dropped when its standardised interaction coefficient is
+  at most `1e-8` in absolute value.
+* Additional input-validation tests.
+
 # MRCCC 0.99.2
 
 * `mr_ccc()` now centres every column of the instrument matrices `G`, `H`
@@ -24,7 +32,7 @@
   `beta_Z` are now scaled by a fixed diagonal computed once from the
   least-squares first stage, instead of by the current `X*`, `Z*` at every
   sweep. Because `X*` and `Z*` are functions of the first-stage parameters,
-  the earlier prior entered their full conditionals, which the sampler did not
+  the prior used in 0.99.0 entered their full conditionals, which the sampler did not
   account for. With the scale fixed the first-stage updates are exact as
   written and every update remains conjugate. The scale is returned in
   `settings$prior_scale`.

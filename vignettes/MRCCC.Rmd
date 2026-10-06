@@ -218,10 +218,12 @@ because $\hat R$ compares the variance between chains with the variance
 within them and there is nothing to compare. This is why the default is
 `n_chains = 4`.
 
-Pooling chains is not more expensive than lengthening one. Per-chain Monte
+Pooling chains costs little more than lengthening one. Per-chain Monte
 Carlo standard errors combine in quadrature, so $C$ chains of `n_iter`
-iterations carry the same standard error as one chain of $C \times$ `n_iter`;
-the difference is that several chains also yield $\hat R$.
+iterations, each discarding `burn_in`, carry approximately the same standard
+error as one chain that retains $C \times$ (`n_iter` $-$ `burn_in`) draws.
+The additional cost is the $C - 1$ extra burn-in periods, and several chains
+also yield $\hat R$.
 
 ```{r chains}
 fit2 <- mr_ccc(sim$X, sim$Z, sim$Y, sim$G, sim$H, sim$V,

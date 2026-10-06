@@ -66,8 +66,10 @@ test_that("sign_reversal uses paired draws on the standardised scale", {
   expect_true(sr$tau_lower <= sr$tau_median)
   expect_true(sr$tau_median <= sr$tau_upper)
   expect_true(sr$p_in_range >= 0 && sr$p_in_range <= 1)
-  # Recompute from the raw draws: tau_std = (-beta_X / beta_XZ) / sd_Z
-  ok <- abs(fit$draws$beta_XZ) >= 1e-8
+  # Recompute from the raw draws: tau_std = (-beta_X / beta_XZ) / sd_Z, with
+  # near-zero interaction draws identified on the standardised scale.
+  sf_XZ <- with(fit$scale, sd_X * sd_Z / sd_Y)
+  ok <- abs(fit$draws$beta_XZ * sf_XZ) > 1e-8
   tau_manual <- (-fit$draws$beta_X[ok] / fit$draws$beta_XZ[ok]) /
     fit$scale$sd_Z
   expect_equal(sr$tau_draws, tau_manual)
@@ -76,8 +78,33 @@ test_that("sign_reversal uses paired draws on the standardised scale", {
   expect_equal(sr2$Z_range_std, sr$Z_range_std)
 })
 
+test_that("the sign_reversal cutoff does not depend on the units of the inputs", {
+  # Rescaling Y rescales beta_XZ by the same factor; the standardised
+  # interaction, and therefore the set of retained draws, is unchanged.
+  fit_s <- fit
+  fit_s$draws$beta_X  <- fit$draws$beta_X  * 1e-9
+  fit_s$draws$beta_XZ <- fit$draws$beta_XZ * 1e-9
+  fit_s$scale$sd_Y    <- fit$scale$sd_Y    * 1e-9
+  expect_identical(sign_reversal(fit_s)$n_draws, sign_reversal(fit)$n_draws)
+  expect_equal(sign_reversal(fit_s)$tau_draws, sign_reversal(fit)$tau_draws)
+})
+
+test_that("sign_reversal validates Z_observed", {
+  expect_error(sign_reversal(fit, Z_observed = 1),
+               "'Z_observed' must be a numeric vector of length at least 2")
+  expect_error(sign_reversal(fit, Z_observed = c(1, NA)),
+               "'Z_observed' must be a numeric vector of length at least 2")
+})
+
+test_that("credible_intervals validates 'standardized'", {
+  expect_error(credible_intervals(fit, standardized = NA),
+               "'standardized' must be TRUE or FALSE")
+  expect_error(credible_intervals(fit, standardized = "yes"),
+               "'standardized' must be TRUE or FALSE")
+})
+
 test_that("the Gelman-Rubin helper behaves as specified", {
-  set.seed(7)
+  withr::local_seed(7)
   x <- rnorm(500)
   # With B = 0 the statistic equals sqrt((n - 1) / n), which is 1 up to
   # the finite-sample correction.
@@ -94,7 +121,7 @@ test_that("the Gelman-Rubin helper behaves as specified", {
 })
 
 test_that("batch-means MCSE is pooled in quadrature across chains", {
-  set.seed(11)
+  withr::local_seed(11)
   ch <- list(rbinom(600, 1, 0.5), rbinom(600, 1, 0.5))
   per <- lapply(ch, mcse_batch)
   pooled <- mcse_pooled(per)

@@ -23,9 +23,10 @@
 #' @param H Numeric matrix with \eqn{n} rows: cis-eQTL genotypes that
 #'   instrument the receptor (at least one column).
 #' @param V Numeric matrix with \eqn{n} rows of shared donor covariates
-#'   (for example genotype principal components, age or sex). At least one
-#'   column is required; supplying `NULL` is an error. When no covariates are
-#'   available, pass a single non-constant column such as age.
+#'   (for example genotype principal components, age or sex). Required, with
+#'   at least one column; omitting it or supplying `NULL` is an error. When no
+#'   covariates are available, pass a single non-constant column such as age.
+#'   Columns are centred internally.
 #' @param n_iter Total number of Gibbs iterations per chain.
 #' @param burn_in Number of initial iterations discarded per chain. Must be
 #'   smaller than `n_iter`.
@@ -192,7 +193,7 @@
 #' fit$estimates
 #'
 #' @export
-mr_ccc <- function(X, Z, Y, G, H, V = NULL,
+mr_ccc <- function(X, Z, Y, G, H, V,
                    n_iter = 20000, burn_in = 2000, thin = 1, n_chains = 4,
                    init_scale = 1, pip_threshold = 0.5,
                    hyper = mrccc_hyperparameters(), seed = NULL,
@@ -213,10 +214,10 @@ mr_ccc <- function(X, Z, Y, G, H, V = NULL,
   Y <- as_column(Y, "Y")
   G <- as_design(G, "G")
   H <- as_design(H, "H")
-  if (is.null(V)) {
+  if (missing(V) || is.null(V)) {
     stop("'V' must be a numeric matrix with at least one covariate column; ",
-         "NULL is not allowed. When no covariates are available, supply a ",
-         "single centred, non-constant column such as standardised age.",
+         "it is required and cannot be NULL. When no covariates are ",
+         "available, supply a single non-constant column such as age.",
          call. = FALSE)
   }
   V <- as_design(V, "V")

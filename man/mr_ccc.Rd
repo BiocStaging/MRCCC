@@ -10,7 +10,7 @@ mr_ccc(
   Y,
   G,
   H,
-  V = NULL,
+  V,
   n_iter = 20000,
   burn_in = 2000,
   thin = 1,
@@ -42,9 +42,10 @@ instrument the ligand (at least one column).}
 instrument the receptor (at least one column).}
 
 \item{V}{Numeric matrix with \eqn{n} rows of shared donor covariates
-(for example genotype principal components, age or sex). At least one
-column is required; supplying \code{NULL} is an error. When no covariates are
-available, pass a single non-constant column such as age.}
+(for example genotype principal components, age or sex). Required, with
+at least one column; omitting it or supplying \code{NULL} is an error. When no
+covariates are available, pass a single non-constant column such as age.
+Columns are centred internally.}
 
 \item{n_iter}{Total number of Gibbs iterations per chain.}
 
