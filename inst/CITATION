@@ -8,10 +8,11 @@ bibentry(
   eprint  = "2604.23917",
   archivePrefix = "arXiv",
   primaryClass  = "stat.ME",
+  doi     = "10.48550/arXiv.2604.23917",
   url     = "https://arxiv.org/abs/2604.23917",
   textVersion = paste(
     "Sarkar B, Ni Y (2026).",
     "MR-CCC: Bayesian Mendelian Randomization for Causal Cell-Cell Communication.",
-    "arXiv:2604.23917. https://arxiv.org/abs/2604.23917"
+    "arXiv:2604.23917. doi:10.48550/arXiv.2604.23917"
   )
 )

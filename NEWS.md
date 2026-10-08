@@ -1,3 +1,7 @@
+# MRCCC 0.99.4
+
+* The CITATION entry includes the DOI of the preprint.
+
 # MRCCC 0.99.3
 
 * `V` is now a required argument of `mr_ccc()`.
