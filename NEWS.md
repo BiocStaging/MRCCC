@@ -1,3 +1,11 @@
+# MRCCC 0.99.5
+
+* `mr_ccc_gibbs()` gains the argument `save_first_stage` (default `FALSE`).
+  When `TRUE`, the retained draws of the first-stage instrument effects are
+  returned as `Pi_X_draws` and `Pi_Z_draws`, so that credible intervals for
+  the instrument effects can be computed inside the model. Storing them
+  uses no random numbers; all other outputs are unchanged.
+
 # MRCCC 0.99.4
 
 * The CITATION entry includes the DOI of the preprint.

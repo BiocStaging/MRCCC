@@ -169,6 +169,29 @@ test_that("the compiled sampler honours n_keep and verbose", {
   expect_named(out$prior_scale, c("d_X", "d_XZ", "d_Z"))
 })
 
+test_that("first-stage draws are returned only on request and change nothing else", {
+  ctr <- function(v) matrix(v - mean(v), ncol = 1)
+  ctr_cols <- function(M) scale(M, center = TRUE, scale = FALSE)
+  Gc <- ctr_cols(sim$G); Hc <- ctr_cols(sim$H); Vc <- ctr_cols(sim$V)
+  run <- function(save) {
+    set.seed(11)
+    mr_ccc_gibbs(ctr(sim$X), ctr(sim$Z), ctr(sim$Y), Gc, Hc, Vc,
+                 n_iter = 400, burn_in = 100, thin = 3,
+                 save_first_stage = save)
+  }
+  off <- run(FALSE)
+  on  <- run(TRUE)
+  expect_false(any(c("Pi_X_draws", "Pi_Z_draws") %in% names(off)))
+  expect_length(off, 22L)
+  expect_length(on, 24L)
+  expect_identical(on[names(off)], off)
+  expect_equal(dim(on$Pi_X_draws), c(off$n_keep, ncol(Gc)))
+  expect_equal(dim(on$Pi_Z_draws), c(off$n_keep, ncol(Hc)))
+  expect_true(all(is.finite(on$Pi_X_draws)) && all(is.finite(on$Pi_Z_draws)))
+  expect_equal(colMeans(on$Pi_X_draws), as.numeric(off$Pi_X_mean))
+  expect_equal(colMeans(on$Pi_Z_draws), as.numeric(off$Pi_Z_mean))
+})
+
 test_that("the compiled sampler rejects invalid arguments", {
   ctr <- function(v) matrix(v - mean(v), ncol = 1)
   ctr_cols <- function(M) scale(M, center = TRUE, scale = FALSE)

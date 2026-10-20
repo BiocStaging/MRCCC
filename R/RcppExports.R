@@ -45,6 +45,11 @@
 #'   independent normal draws with standard deviation `init_scale`.
 #' @param verbose Logical; if `TRUE`, a progress line is printed every 1000
 #'   iterations.
+#' @param save_first_stage Logical; if `TRUE`, the retained draws of the
+#'   first-stage instrument effects are also returned, as `Pi_X_draws` and
+#'   `Pi_Z_draws`. Storing them uses no random numbers, so the other outputs
+#'   are identical to those of a call with `save_first_stage = FALSE` under
+#'   the same random number state.
 #'
 #' @details
 #' The priors on the second-stage coefficients are
@@ -70,7 +75,9 @@
 #'   `prior_scale`, a named numeric vector giving `d_X`, `d_XZ` and `d_Z`.
 #'   `loglik_draws` is the joint
 #'   log-likelihood of the three equations evaluated at each retained draw,
-#'   excluding prior terms.
+#'   excluding prior terms. When `save_first_stage = TRUE` the list also
+#'   contains `Pi_X_draws` and `Pi_Z_draws`, matrices with `n_keep` rows and
+#'   one column per instrument in `G` and `H` respectively.
 #'
 #' @seealso [mr_ccc()] for the user-facing interface.
 #'
@@ -86,7 +93,7 @@
 #' length(out$Beta_XZ_draws) == out$n_keep
 #'
 #' @export
-mr_ccc_gibbs <- function(X, Z, Y, G, H, V, n_iter = 20000L, burn_in = 2000L, thin = 1L, a_sigma = 3.0, b_sigma = 2.0, a_rho = 3.0, b_rho = 1.0, nu1 = 1e-4, gG = 100.0, gV = 100.0, gH = 100.0, gZ = 100.0, gBeta = 100.0, ridge = 1e-8, init_gamma = 1L, init_scale = 0.0, verbose = FALSE) {
-    .Call(`_MRCCC_mr_ccc_gibbs`, X, Z, Y, G, H, V, n_iter, burn_in, thin, a_sigma, b_sigma, a_rho, b_rho, nu1, gG, gV, gH, gZ, gBeta, ridge, init_gamma, init_scale, verbose)
+mr_ccc_gibbs <- function(X, Z, Y, G, H, V, n_iter = 20000L, burn_in = 2000L, thin = 1L, a_sigma = 3.0, b_sigma = 2.0, a_rho = 3.0, b_rho = 1.0, nu1 = 1e-4, gG = 100.0, gV = 100.0, gH = 100.0, gZ = 100.0, gBeta = 100.0, ridge = 1e-8, init_gamma = 1L, init_scale = 0.0, verbose = FALSE, save_first_stage = FALSE) {
+    .Call(`_MRCCC_mr_ccc_gibbs`, X, Z, Y, G, H, V, n_iter, burn_in, thin, a_sigma, b_sigma, a_rho, b_rho, nu1, gG, gV, gH, gZ, gBeta, ridge, init_gamma, init_scale, verbose, save_first_stage)
 }
 

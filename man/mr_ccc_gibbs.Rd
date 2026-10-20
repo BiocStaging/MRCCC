@@ -27,7 +27,8 @@ mr_ccc_gibbs(
   ridge = 1e-08,
   init_gamma = 1L,
   init_scale = 0,
-  verbose = FALSE
+  verbose = FALSE,
+  save_first_stage = FALSE
 )
 }
 \arguments{
@@ -82,6 +83,12 @@ independent normal draws with standard deviation \code{init_scale}.}
 
 \item{verbose}{Logical; if \code{TRUE}, a progress line is printed every 1000
 iterations.}
+
+\item{save_first_stage}{Logical; if \code{TRUE}, the retained draws of the
+first-stage instrument effects are also returned, as \code{Pi_X_draws} and
+\code{Pi_Z_draws}. Storing them uses no random numbers, so the other outputs
+are identical to those of a call with \code{save_first_stage = FALSE} under
+the same random number state.}
 }
 \value{
 A named list with posterior means (\code{Pi_X_mean}, \code{Alpha_X_mean},
@@ -94,7 +101,9 @@ number of retained draws \code{n_keep}, the retained draws \code{Beta_X_draws},
 \code{prior_scale}, a named numeric vector giving \code{d_X}, \code{d_XZ} and \code{d_Z}.
 \code{loglik_draws} is the joint
 log-likelihood of the three equations evaluated at each retained draw,
-excluding prior terms.
+excluding prior terms. When \code{save_first_stage = TRUE} the list also
+contains \code{Pi_X_draws} and \code{Pi_Z_draws}, matrices with \code{n_keep} rows and
+one column per instrument in \code{G} and \code{H} respectively.
 }
 \description{
 Runs the blocked Gibbs sampler for a single ligand-receptor-pathway
